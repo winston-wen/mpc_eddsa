@@ -9,7 +9,7 @@
 
 默认情况下，本项目暂时支持：
 
-1. $(t,n)$-门限ECDSA签名算法GG18（`keygen`、`sign`）
+1. $(t,n)$-门限Ed25519签名算法Frost（`keygen`、`sign`）
 
 ## Build
 

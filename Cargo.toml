@@ -1,25 +1,9 @@
-[package]
-name = "MPC_EdDSA-FROST"
-version = "0.1.0"
-authors = [
-    "TAIYI TECH",
-    "Chelsea Komlo <ckomlo@uwaterloo.ca>",
+[workspace]
+
+members = [
+    "luban_core",
+    "frost_algo",
+    "luban_manager",
+    "frost_ffi",
+    "frost_test",
 ]
-edition = "2018"
-
-[[bin]]
-name = "mpc_eddsa-frost"
-path = "src/main.rs"
-
-[dependencies]
-curve25519-dalek = { version = "3", features = ["serde"] }
-rand = "0.7"
-sha2 = "0.9"
-serde = "1.0"
-serde_json = "1.0"
-rocket = { version = "0.5.0-rc.1", features = ["json"] }
-reqwest = { version = "0.10.1", default-features = false, features = ["native-tls", "json", "blocking"] }
-uuid = { version = "0.8", features = ["v4"] }
-aes-gcm = "0.9.4"
-clap = { version = "4.0.29", features = ["default"] }
-hex = "0.4"
