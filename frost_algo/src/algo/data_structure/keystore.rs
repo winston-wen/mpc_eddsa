@@ -1,4 +1,3 @@
-use curve25519_dalek::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use xuanmi_base_support::*;
@@ -11,7 +10,6 @@ pub struct KeyStore {
     pub signing_key: KeyPair,
     pub party_num_int: u16, // why u32 originally???
     pub valid_com_vec: Vec<KeyGenDKGCommitment>,
-    pub y_sum: RistrettoPoint,
 }
 
 impl KeyStore {
@@ -75,7 +73,6 @@ mod serialize_friendly {
         pub signing_key: KeyPair,
         pub party_num_int: u16, // Not u16???
         pub valid_com_vec: Vec<KeyGenDKGCommitment>,
-        pub y_sum: String, // RistrettoPoint_hex
     }
 
     impl KeyStore {
@@ -113,7 +110,6 @@ mod serialize_friendly {
                         .collect::<Vec<_>>();
                     valid_com_vec_str
                 },
-                y_sum: point_to_hex(&src.y_sum),
             }
         }
 
@@ -154,7 +150,6 @@ mod serialize_friendly {
                     }
                     valid_com_vec_from_hex
                 },
-                y_sum: point_from_hex(&self.y_sum)?,
             };
             Ok(ret)
         }

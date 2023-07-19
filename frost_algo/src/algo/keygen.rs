@@ -1,11 +1,9 @@
 #![allow(non_snake_case)]
-use std::{fs, time};
 
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
 use rand::rngs::OsRng;
-
-use reqwest::blocking::Client;
+use zeroize::Zeroize;
 
 use luban_core::*;
 use xuanmi_base_support::*;
@@ -64,18 +62,18 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
     );
     // #endregion
 
+    // #region generate commitment and zkp for broadcasting
     let mut rng = OsRng;
-
     let party_key = KeyInitial::new(party_num_int, &mut rng);
-
-    let (shares_com, shares) = match party_key.generate_shares(parties, threshold, &mut rng) {
+    let (shares_com, mut shares) = match party_key.generate_shares(parties, threshold, &mut rng) {
         Ok(_ok) => _ok,
         Err(_) => throw!(
             name = SharesGenFailed,
             ctx = &(("Failed to generate key shares").to_owned() + exception_location)
         ),
     };
-    let context = "ed25519";
+    // let context = "ed25519";
+    let context = messenger.uuid();
     let challenge =
         match generate_dkg_challenge(party_num_int, context, party_key.g_u_i, party_key.g_k) {
             Ok(_ok) => _ok,
@@ -94,6 +92,7 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
             sigma,
         },
     };
+    // #endregion
 
     // #region round 1: send public commitment to coeffs and a proof of knowledge to u_i
     messenger.send_broadcast(party_num_int, round, &obj_to_json(&dkg_commitment)?)?;
@@ -107,8 +106,12 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
     round += 1;
     // #endregion
 
+    // #region verify commitment and zkp from round 1 and construct aes keys
     let (invalid_peer_ids, valid_com_vec): (Vec<u16>, Vec<KeyGenDKGCommitment>) =
-        match KeyInitial::keygen_receive_commitments_and_validate_peers(dkg_com_vec, &context) {
+        match KeyInitial::keygen_receive_commitments_and_validate_peers(
+            dkg_com_vec.clone(),
+            &context,
+        ) {
             Ok(_ok) => _ok,
             Err(_) => throw!(
                 name = DKGChallengeGenFailed,
@@ -122,6 +125,7 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
                 &(format!("Invalid zkp from parties {:?}", invalid_peer_ids) + exception_location)
         );
     }
+    dkg_com_vec.iter_mut().for_each(|x| x.zeroize());
 
     let mut enc_keys: Vec<RistrettoPoint> = Vec::new();
     for i in 1..=parties {
@@ -131,13 +135,7 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
             );
         }
     }
-
-    let (head, tail) = valid_com_vec.split_at(1);
-    let y_sum = tail
-        .iter()
-        .fold(head[0].shares_commitment.commitment[0].clone(), |acc, x| {
-            acc + x.shares_commitment.commitment[0]
-        });
+    // #endregion
 
     // #region round 2: send secret shares via aes-p2p
     let mut j = 0;
@@ -155,11 +153,13 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
     println!("Finished keygen round {round}");
     // #endregion
 
+    // #region retrieve private signing key share
     let mut j = 0;
     let mut party_shares: Vec<Share> = Vec::new();
     for i in 1..=parties {
         if i == party_num_int {
             party_shares.push(shares[(i - 1) as usize].clone());
+            shares.zeroize();
         } else {
             let aead_pack: aes::AEAD = json_to_obj(&round2_ans_vec[j])?;
             let key_i = &enc_keys[j].compress().to_bytes();
@@ -173,7 +173,7 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
     }
 
     let signing_key: KeyPair = match KeyInitial::keygen_verify_share_construct_keypair(
-        party_shares,
+        party_shares.clone(),
         valid_com_vec.clone(),
         party_num_int,
     ) {
@@ -183,13 +183,14 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
             ctx = &(("Invalid commitment to key share").to_owned() + exception_location)
         ),
     };
+    party_shares.iter_mut().for_each(|x| x.zeroize());
+    // #endregion
 
     let keystore = KeyStore {
         party_key,
         signing_key,
         party_num_int,
         valid_com_vec,
-        y_sum,
     };
     println!("Finished keygen");
     Ok(keystore)

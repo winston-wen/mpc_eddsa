@@ -27,5 +27,6 @@ reqwest = { version = "0.10.1", default-features = false, features = ["native-tl
 uuid = { version = "0.8", features = ["v4"] }
 aes-gcm = { version = "0.9", features = ["std"] }
 hex = "0.4"
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 #endregion

@@ -5,6 +5,7 @@ use curve25519_dalek::traits::Identity;
 use rand::rngs::OsRng;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use zeroize::Zeroize;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -87,6 +88,35 @@ pub struct Signature {
     pub r: RistrettoPoint, // Sign: R
     pub z: Scalar,         // Sign: z
     pub hash: Vec<u8>,     // Sign: hashed message
+}
+
+impl Zeroize for KeyGenDKGProposedCommitment {
+    fn zeroize(&mut self) {
+        self.index.zeroize();
+        self.shares_commitment.zeroize();
+        self.zkp.zeroize();
+    }
+}
+
+impl Zeroize for SharesCommitment {
+    fn zeroize(&mut self) {
+        self.commitment.iter_mut().for_each(Zeroize::zeroize);
+    }
+}
+
+impl Zeroize for KeyGenZKP {
+    fn zeroize(&mut self) {
+        self.g_k.zeroize();
+        self.sigma.zeroize();
+    }
+}
+
+impl Zeroize for Share {
+    fn zeroize(&mut self) {
+        self.generator_index.zeroize();
+        self.receiver_index.zeroize();
+        self.value.zeroize();
+    }
 }
 
 impl KeyGenDKGProposedCommitment {
@@ -196,11 +226,8 @@ impl KeyInitial {
         let numcoeffs = threshold - 1;
 
         let mut coefficients: Vec<Scalar> = Vec::with_capacity(numcoeffs as usize);
-
         let mut shares: Vec<Share> = Vec::with_capacity(numshares as usize);
-
         let mut commitment: Vec<RistrettoPoint> = Vec::with_capacity(threshold as usize);
-
         for _ in 0..numcoeffs {
             coefficients.push(Scalar::random(rng));
         }
@@ -229,6 +256,9 @@ impl KeyInitial {
                 receiver_index: index,
                 value: value,
             });
+        }
+        for c in coefficients.iter_mut() {
+            c.zeroize();
         }
         Ok((SharesCommitment { commitment }, shares))
     }

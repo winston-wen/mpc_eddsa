@@ -1,5 +1,4 @@
 #![allow(non_snake_case)]
-use std::{fs, time};
 
 use curve25519_dalek::ristretto::RistrettoPoint;
 use rand::rngs::OsRng;
@@ -34,7 +33,6 @@ pub fn algo_sign(
 
     let (threshold, parties, share_count) = (tcn_config[0], tcn_config[1], tcn_config[2]);
     let signing_key = &keystore.signing_key;
-    // let y_sum = keystore.y_sum;
     let valid_com_vec = &keystore.valid_com_vec;
     let party_id = keystore.party_num_int;
     println!(
