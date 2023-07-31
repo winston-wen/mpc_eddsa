@@ -1,7 +1,9 @@
 #![allow(non_snake_case)]
 
-use curve25519_dalek::ristretto::RistrettoPoint;
+use bip32::ChainCode;
+use curve25519_dalek::{constants, ristretto::RistrettoPoint, scalar::Scalar};
 use rand::rngs::OsRng;
+use sha2::{Digest, Sha512};
 use std::collections::HashMap;
 
 use luban_core::MpcClientMessenger;
@@ -11,16 +13,17 @@ use super::party_i::{
     get_ith_pubkey, validate, KeyPair, Signature, SigningCommitmentPair, SigningResponse,
 };
 
-use super::data_structure::KeyStore;
+use super::{data_structure::KeyStore, hd};
 use crate::{
-    InvalidConfigs, InvalidKeystore, InvalidMessage, InvalidSignature, SignFailed, SignUpFailed,
-    SignatureAggregateFailed, SigningComGenFailed,
+    ChildKeyDerivationFailed, InvalidConfigs, InvalidKeystore, InvalidMessage, InvalidSignature,
+    SignFailed, SignUpFailed, SignatureAggregateFailed, SigningComGenFailed,
 };
 
 pub fn algo_sign(
     server: &str,
     tr_uuid: &str,
     tcn_config: &[u16; 3],
+    derive: &str,
     msg_hashed: &[u8],
     keystore: &KeyStore,
 ) -> Outcome<Signature> {
@@ -32,8 +35,8 @@ pub fn algo_sign(
     }
 
     let (threshold, parties, share_count) = (tcn_config[0], tcn_config[1], tcn_config[2]);
-    let signing_key = &keystore.signing_key;
-    let valid_com_vec = &keystore.valid_com_vec;
+    let mut signing_key = keystore.signing_key;
+    let mut valid_com_vec = keystore.valid_com_vec.clone();
     let party_id = keystore.party_num_int;
     println!(
         "Start sign with threshold={}, parties={}, share_count={}",
@@ -94,6 +97,38 @@ pub fn algo_sign(
     round += 1;
     // #endregion
 
+    // #region Derive child keys
+    let y_sum_bytes_small = signing_key.group_public.compress().to_bytes().to_vec();
+    let chain_code: ChainCode = match Sha512::digest(&y_sum_bytes_small).get(..32) {
+        Some(arr) => arr.try_into().unwrap(),
+        None => {
+            throw!(
+                name = ChildKeyDerivationFailed,
+                ctx = &(format!(
+                    "Bad Sha512 digest for ChainCode, input_bytes_hex={}",
+                    hex::encode(&y_sum_bytes_small)
+                ) + exception_location)
+            )
+        }
+    };
+    let (tweak_sk, child_pk) = match derive.is_empty() {
+        true => (Scalar::zero(), signing_key.group_public),
+        false => hd::algo_get_hd_key(derive, &signing_key.group_public, &chain_code).catch(
+            ChildKeyDerivationFailed,
+            &format!(
+                "Failed to {} where server=\"{}\", uuid=\"{}\", share_count=\"{}\", threshold=\"{}\"",
+                "get_hd_key", server, tr_uuid, share_count, threshold
+            ),
+        )?,
+    };
+    signing_key.group_public = child_pk;
+    signing_key.x_i += &tweak_sk;
+    signing_key.g_x_i += &constants::RISTRETTO_BASEPOINT_TABLE * &tweak_sk;
+    valid_com_vec[signers_vec[0] as usize - 1]
+        .shares_commitment
+        .commitment[0] += &constants::RISTRETTO_BASEPOINT_TABLE * &tweak_sk;
+    // #endregion
+
     // #region round 2: broadcast signing commitment pairs
     let (signing_com_pair_i, mut signing_nonce_pair_i) =
         match KeyPair::sign_preprocess(1, party_id, &mut rng) {
@@ -122,9 +157,10 @@ pub fn algo_sign(
         msg_hashed,
     ) {
         Ok(_ok) => _ok,
-        Err(_) => throw!(
+        Err(err) => throw!(
             name = SignFailed,
-            ctx = &(("Failed to sign the message").to_owned() + exception_location)
+            ctx = &(format!("Failed to sign the message, particularly \"{}\"", err)
+                + exception_location)
         ),
     };
     messenger.send_broadcast(party_num_int, round, &obj_to_json(&response_i)?)?;
@@ -142,7 +178,7 @@ pub fn algo_sign(
         HashMap::with_capacity(signing_com_pair_vec.len());
     for counter in 0..signing_com_pair_vec.len() {
         let ith_pubkey = get_ith_pubkey(signers_vec[counter], &valid_com_vec);
-        signer_pubkeys.insert(signers_vec[counter], ith_pubkey);
+        let _ = signer_pubkeys.insert(signers_vec[counter], ith_pubkey);
     }
     let group_sig: Signature = match KeyPair::sign_aggregate_responses(
         msg_hashed,
@@ -151,9 +187,12 @@ pub fn algo_sign(
         &signer_pubkeys,
     ) {
         Ok(_ok) => _ok,
-        Err(_) => throw!(
+        Err(err) => throw!(
             name = SignatureAggregateFailed,
-            ctx = &(("Failed to aggregate signature shares").to_owned() + exception_location)
+            ctx = &(format!(
+                "Failed to aggregate signature shares, particularly \"{}\"",
+                err
+            ) + exception_location)
         ),
     };
     if !validate(&group_sig, signing_key.group_public).is_ok() {

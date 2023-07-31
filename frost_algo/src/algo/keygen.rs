@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
-use curve25519_dalek::ristretto::RistrettoPoint;
-use curve25519_dalek::scalar::Scalar;
+use bip32::{Language, Mnemonic};
+use curve25519_dalek::{ristretto::RistrettoPoint, scalar::Scalar};
 use rand::rngs::OsRng;
 use zeroize::Zeroize;
 
@@ -20,8 +20,9 @@ use crate::{
 };
 
 use super::aes;
+type KeygenT = (String, KeyStore); // (mnemonic, keystore_json)
 
-pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome<KeyStore> {
+pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome<KeygenT> {
     let (threshold, share_count, parties) = (tn_config[0], tn_config[1], tn_config[1]);
     println!(
         "Start keygen with \n\tthreshold={}, share_count={}",
@@ -65,11 +66,14 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
     // #region generate commitment and zkp for broadcasting
     let mut rng = OsRng;
     let party_key = KeyInitial::new(party_num_int, &mut rng);
+    let mnemonic = Mnemonic::from_entropy(party_key.u_i.to_bytes(), Language::English);
+    let phrase: String = mnemonic.phrase().to_string();
     let (shares_com, mut shares) = match party_key.generate_shares(parties, threshold, &mut rng) {
         Ok(_ok) => _ok,
-        Err(_) => throw!(
+        Err(err) => throw!(
             name = SharesGenFailed,
-            ctx = &(("Failed to generate key shares").to_owned() + exception_location)
+            ctx = &(format!("Failed to generate key shares, particularly \"{}\"", err)
+                + exception_location)
         ),
     };
     // let context = "ed25519";
@@ -193,5 +197,5 @@ pub fn algo_keygen(server: &str, tr_uuid: &str, tn_config: &[u16; 2]) -> Outcome
         valid_com_vec,
     };
     println!("Finished keygen");
-    Ok(keystore)
+    Ok((phrase, keystore))
 }

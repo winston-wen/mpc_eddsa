@@ -9,96 +9,46 @@
 
 默认情况下，本项目暂时支持：
 
-1. $(t,n)$-门限Ed25519签名算法Frost（`keygen`、`sign`）
+1. $(t,n)$-门限Ed25519签名算法Frost（`keygen`、`sign`）；
+2. 支持仿BIP32的HD Key衍生；
+3. 支持BIP39助记词；
 
 ## Build
 
-```sh
-cargo build --release
-```
+执行`make`或`make release`编译
 
 ## Manager
 
-运行`manager`，以管理各个参与方之间的通信。
-
-```sh
-./target/release/mpc_eddsa-frost manager
-```
-
-可修改`Rocket.toml`或使用`[env vars]`覆盖，以使用不同的host/port，参见 <https://api.rocket.rs/v0.4/rocket/config/index.html#environment-variables> 。
-
-```sh
-ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8008 ./target/release/mpc_eddsa-frost manager
-```
+运行`built`->`luban_manager`，以管理各个参与方之间的通信。
 
 ## Keygen
 
 $(t,n)$-门限签名下，支持$n$方（如$P_1, P_2, ..., P_n$）共同发起`keygen`命令。
 
-***输入：函数体内、函数体外不需要读取 `keys.store`***
-
-***输出：生成 `keys1.store`、`keys2.store`、……、`keysn.store`***
+进入`built`目录, 开三个终端分别执行
 
 ```sh
-USAGE:
-    mpc_eddsa-frost keygen [OPTIONS] <keysfile> <params>
-
-OPTIONS:
-    -a, --addr <manager_addr>    URL to manager. E.g. http://127.0.0.2:8002
-
-ARGS:
-    <keysfile>  Target keys file
-    <params>    Threshold/parties
-                例如1/3表示(1,3)-门限签名
-
-t=1 && n=3; for i in $(seq 1 $n)
-do
-    echo "key gen for client $i out of $n"
-    ./target/release/mpc_eddsa-frost keygen keys$i.store $t/$n &
-    sleep 2
-done
-
-./target/release/mpc_eddsa-frost keygen -a http://127.0.0.1:8008 keys1.store 1/3
-./target/release/mpc_eddsa-frost keygen -a http://127.0.0.1:8008 keys2.store 1/3
-./target/release/mpc_eddsa-frost keygen -a http://127.0.0.1:8008 keys3.store 1/3    
+./frost_test sample.keygen1.json k1.json
+./frost_test sample.keygen2.json k2.json
+./frost_test sample.keygen3.json k3.json 
 ```
+其中`keygen.json`是`keygen`的参数, `ki.json`是输出的`keystore`文件路径。
 
 ## Sign message
 
-$(t,n)$-门限签名下，支持$t'$方（$t < t'\le n$，如$P_1, P_2, ..., P_{t'}$）共同发起`sign`命令、对一条信息进行标准ECDSA签名。
-
-***输入：函数体外需要读取 $t'$个 `keys.store`***
-
-***输出：不生成 `keys.store`***
+$(t,n)$-门限签名下，支持$t'$方（$t < t'\le n$，如$P_1, P_2, ..., P_{t'}$）共同发起`sign`命令、对一条信息进行标准EdDSA签名。
 
 ```sh
-USAGE:
-    mpc_eddsa-frost sign [OPTIONS] <keysfile> <params> <message>
-
-OPTIONS:
-    -a, --addr <manager_addr>    URL to manager
-
-ARGS:
-    <keysfile>  Keys file
-    <params>    Threshold/parties/share_count
-                例如1/2/3表示(1,3)-门限签名下由2方发起
-    <message>   Message in hex format
-
-./target/release/mpc_eddsa-frost sign -p m/0/1/2 -a http://127.0.0.1:8001 keys1.store 1/3/3 message
-./target/release/mpc_eddsa-frost sign -p m/0/1/2 -a http://127.0.0.1:8001 keys2.store 1/3/3 message
-./target/release/mpc_eddsa-frost sign -p m/0/1/2 -a http://127.0.0.1:8001 keys3.store 1/3/3 message
-
-./target/release/mpc_eddsa-frost sign -p m/0/1/2 -a http://127.0.0.1:8001 keys1.store 1/2/3 message
-./target/release/mpc_eddsa-frost sign -p m/0/1/2 -a http://127.0.0.1:8001 keys3.store 1/2/3 message
+./frost_test sample.sign23.json k3.json
 
 对输入参数的检错能力包括：
 1. parties < threshold + 1
 2. parties > share_count
+3. <keysfile>重复
 
 对输入参数的检错能力不包括：
-1. <keysfile>重复
-2. <params>不一致
-3. <message>不一致
+1. <params>不一致
+2. <message>不一致
 ```
 
 ## Note

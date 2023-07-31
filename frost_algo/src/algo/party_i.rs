@@ -1,8 +1,5 @@
-use curve25519_dalek::constants;
-use curve25519_dalek::ristretto::RistrettoPoint;
-use curve25519_dalek::scalar::Scalar;
-use curve25519_dalek::traits::Identity;
-use rand::rngs::OsRng;
+use curve25519_dalek::{constants, ristretto::RistrettoPoint, scalar::Scalar, traits::Identity};
+use rand::{CryptoRng, RngCore};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use zeroize::Zeroize;
@@ -35,7 +32,7 @@ pub struct Share {
     value: Scalar,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct KeyInitial {
     pub index: u16,
     pub u_i: Scalar,
@@ -44,7 +41,7 @@ pub struct KeyInitial {
     pub g_k: RistrettoPoint,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct KeyPair {
     pub index: u16,
     pub x_i: Scalar,
@@ -176,7 +173,7 @@ impl Share {
 }
 
 impl KeyInitial {
-    pub fn new(index: u16, rng: &mut OsRng) -> Self {
+    pub fn new<R: RngCore + CryptoRng>(index: u16, rng: &mut R) -> Self {
         let u_i = Scalar::random(rng);
         let k = Scalar::random(rng);
         let g_u_i = &constants::RISTRETTO_BASEPOINT_TABLE * &u_i;
@@ -190,7 +187,7 @@ impl KeyInitial {
         }
     }
 
-    pub fn create_from(u_i: Scalar, index: u16, rng: &mut OsRng) -> Self {
+    pub fn create_from<R: RngCore + CryptoRng>(u_i: Scalar, index: u16, rng: &mut R) -> Self {
         let k = Scalar::random(rng);
         let g_u_i = &constants::RISTRETTO_BASEPOINT_TABLE * &u_i;
         let g_k = &constants::RISTRETTO_BASEPOINT_TABLE * &k;
@@ -207,11 +204,11 @@ impl KeyInitial {
     /// generate shares from. While in FROST this secret should always be generated
     /// randomly, we allow this secret to be specified for this internal function
     /// for testability
-    pub fn generate_shares(
+    pub fn generate_shares<R: RngCore + CryptoRng>(
         &self,
         numshares: u16,
         threshold: u16,
-        rng: &mut OsRng,
+        rng: &mut R,
     ) -> Result<(SharesCommitment, Vec<Share>), &'static str> {
         if threshold < 1 {
             return Err("Threshold cannot be 0");
@@ -223,43 +220,39 @@ impl KeyInitial {
             return Err("Threshold cannot exceed numshares");
         }
 
-        let numcoeffs = threshold - 1;
+        let numcoeffs = threshold;
+        let mut coefficients = (0..numcoeffs)
+            .map(|_| Scalar::random(rng))
+            .collect::<Vec<_>>();
 
-        let mut coefficients: Vec<Scalar> = Vec::with_capacity(numcoeffs as usize);
-        let mut shares: Vec<Share> = Vec::with_capacity(numshares as usize);
-        let mut commitment: Vec<RistrettoPoint> = Vec::with_capacity(threshold as usize);
-        for _ in 0..numcoeffs {
-            coefficients.push(Scalar::random(rng));
-        }
+        let commitment = coefficients.iter().fold(vec![self.g_u_i], |mut acc, c| {
+            acc.push(&constants::RISTRETTO_BASEPOINT_TABLE * &c);
+            acc
+        });
 
-        commitment.push(self.g_u_i);
-        for c in &coefficients {
-            commitment.push(&constants::RISTRETTO_BASEPOINT_TABLE * &c);
-        }
-
-        for index in 1..numshares + 1 {
-            // Evaluate the polynomial with `secret` as the constant term
-            // and `coeffs` as the other coefficients at the point x=share_index
-            // using Horner's method
-            let scalar_index = Scalar::from(index);
-            let mut value = Scalar::zero();
-            for i in (0..numcoeffs).rev() {
-                value += &coefficients[i as usize];
-                value *= scalar_index;
-            }
-            // The secret is the *constant* term in the polynomial used for
-            // secret sharing, this is typical in schemes that build upon Shamir
-            // Secret Sharing.
-            value += self.u_i;
-            shares.push(Share {
-                generator_index: self.index,
-                receiver_index: index,
-                value: value,
-            });
-        }
-        for c in coefficients.iter_mut() {
-            c.zeroize();
-        }
+        let shares = (1..=numshares)
+            .map(|index| {
+                // Evaluate the polynomial with `secret` as the constant term
+                // and `coeffs` as the other coefficients at the point x=share_index
+                // using Horner's method
+                let scalar_index = Scalar::from(index);
+                let mut value = Scalar::zero();
+                for i in (0..numcoeffs).rev() {
+                    value += &coefficients[i as usize];
+                    value *= scalar_index;
+                }
+                // The secret is the *constant* term in the polynomial used for
+                // secret sharing, this is typical in schemes that build upon Shamir
+                // Secret Sharing.
+                value += self.u_i;
+                Share {
+                    generator_index: self.index,
+                    receiver_index: index,
+                    value,
+                }
+            })
+            .collect::<Vec<_>>();
+        coefficients.iter_mut().for_each(|c| c.zeroize());
         Ok((SharesCommitment { commitment }, shares))
     }
 
@@ -338,26 +331,24 @@ impl KeyPair {
     /// preprocess is performed by each participant; their commitments are published
     /// and stored in an external location for later use in signing, while their
     /// signing nonces are stored locally.
-    pub fn sign_preprocess(
+    pub fn sign_preprocess<R: RngCore + CryptoRng>(
         cached_com_count: usize,
         participant_index: u16,
-        rng: &mut OsRng,
+        rng: &mut R,
     ) -> Result<(Vec<SigningCommitmentPair>, Vec<SigningNoncePair>), &'static str> {
-        let mut nonces: Vec<SigningNoncePair> = Vec::with_capacity(cached_com_count);
-        let mut commitments = Vec::with_capacity(cached_com_count);
-
-        for _ in 0..cached_com_count {
-            let nonce_pair = SigningNoncePair::new(rng)?;
-            nonces.push(nonce_pair);
-
-            let commitment = SigningCommitmentPair::new(
-                participant_index,
-                nonce_pair.d.public,
-                nonce_pair.e.public,
-            )?;
-
-            commitments.push(commitment);
-        }
+        let (commitments, nonces): (Vec<_>, Vec<_>) = (0..cached_com_count)
+            .map(|_| {
+                let nonce_pair = SigningNoncePair::new(rng)?;
+                let commitment = SigningCommitmentPair::new(
+                    participant_index,
+                    nonce_pair.d.public,
+                    nonce_pair.e.public,
+                )?;
+                Ok((commitment, nonce_pair))
+            })
+            .collect::<Result<Vec<_>, &'static str>>()?
+            .into_iter()
+            .unzip();
 
         Ok((commitments, nonces))
     }
@@ -370,7 +361,6 @@ impl KeyPair {
         &self,
         signing_commitments: &Vec<SigningCommitmentPair>, // B, but how to construct B???
         signing_nonces: &mut Vec<SigningNoncePair>,
-        // msg: &str,
         msg: &[u8],
     ) -> Result<SigningResponse, &'static str> {
         // no message checking???
@@ -380,13 +370,16 @@ impl KeyPair {
 
         for comm in signing_commitments {
             let rho_i = gen_rho_i(comm.index, msg, signing_commitments); // rho_l = H_1(l, m, B)
-            bindings.insert(comm.index, rho_i); // (l, rho_l)
+            let _ = bindings.insert(comm.index, rho_i); // (l, rho_l)
         }
 
         // R = k * G = sum(D_l + E_l * rho_l)
         let group_commitment = gen_group_commitment(&signing_commitments, &bindings)?;
 
-        let indices = signing_commitments.iter().map(|item| item.index).collect();
+        let indices = signing_commitments
+            .iter()
+            .map(|item| item.index)
+            .collect::<Vec<_>>();
 
         let lambda_i = get_lagrange_coeff(0, self.index, &indices)?;
 
@@ -417,7 +410,7 @@ impl KeyPair {
             + (lambda_i * self.x_i * c);
 
         // Now that this nonce has been used, delete it
-        signing_nonces.remove(signing_nonce_position);
+        let _ = signing_nonces.remove(signing_nonce_position);
 
         Ok(SigningResponse {
             response,          // z_i
@@ -431,7 +424,6 @@ impl KeyPair {
     /// into a single signature that is published. This function is executed
     /// by the entity performing the signature aggregator role.
     pub fn sign_aggregate_responses(
-        // msg: &str,
         msg: &[u8],
         signing_commitments: &Vec<SigningCommitmentPair>,
         signing_responses: &Vec<SigningResponse>,
@@ -462,7 +454,7 @@ impl KeyPair {
         for counter in 0..signing_commitments.len() {
             let comm = &signing_commitments[counter];
             let rho_i = gen_rho_i(comm.index, msg, signing_commitments);
-            bindings.insert(comm.index, rho_i);
+            let _ = bindings.insert(comm.index, rho_i);
         }
 
         let group_commitment = gen_group_commitment(&signing_commitments, &bindings)?;
@@ -472,7 +464,10 @@ impl KeyPair {
         for resp in signing_responses {
             let matching_rho_i = bindings[&resp.index];
 
-            let indices = signing_commitments.iter().map(|item| item.index).collect();
+            let indices = signing_commitments
+                .iter()
+                .map(|item| item.index)
+                .collect::<Vec<_>>();
 
             let lambda_i = get_lagrange_coeff(0, resp.index, &indices)?;
 
@@ -531,12 +526,12 @@ impl SigningCommitmentPair {
 }
 
 impl SigningNoncePair {
-    //pub fn new(rng: &mut ThreadRng) -> Result<NoncePair, &'static str> {
-    pub fn new(rng: &mut OsRng) -> Result<SigningNoncePair, &'static str> {
-        let d = Scalar::random(rng);
-        let e = Scalar::random(rng);
-        let d_pub = &constants::RISTRETTO_BASEPOINT_TABLE * &d;
-        let e_pub = &constants::RISTRETTO_BASEPOINT_TABLE * &e;
+    pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Result<SigningNoncePair, &'static str> {
+        let (d, e) = (Scalar::random(rng), Scalar::random(rng));
+        let (d_pub, e_pub) = (
+            &constants::RISTRETTO_BASEPOINT_TABLE * &d,
+            &constants::RISTRETTO_BASEPOINT_TABLE * &e,
+        );
 
         if d_pub == RistrettoPoint::identity() || e_pub == RistrettoPoint::identity() {
             return Err("Invalid nonce commitment");
@@ -583,7 +578,7 @@ pub fn generate_dkg_challenge(
 pub fn get_lagrange_coeff(
     x_coord: u16,
     signer_index: u16,
-    all_signer_indices: &Vec<u16>,
+    all_signer_indices: &[u16],
 ) -> Result<Scalar, &'static str> {
     let mut num = Scalar::one();
     let mut den = Scalar::one();
@@ -648,6 +643,7 @@ pub fn validate(sig: &Signature, pubkey: RistrettoPoint) -> Result<(), &'static 
     Ok(())
 }
 
+// to be reviewed again? For H(m, R) instead of H(R, Y, m)???
 /// generates the challenge value H(m, R) used for both signing and verification.
 /// ed25519_ph hashes the message first, and derives the challenge as H(H(m), R),
 /// this would be a better optimization but incompatibility with other

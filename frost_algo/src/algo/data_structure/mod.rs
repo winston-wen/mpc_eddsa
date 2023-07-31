@@ -1,8 +1,10 @@
 mod keystore;
 pub use keystore::*;
 mod signature;
-use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
-use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::{
+    ristretto::{CompressedRistretto, RistrettoPoint},
+    scalar::Scalar,
+};
 pub use signature::*;
 use xuanmi_base_support::{TraitStdResultToOutcome, *};
 

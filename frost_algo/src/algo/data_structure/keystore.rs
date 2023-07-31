@@ -8,7 +8,7 @@ use crate::{KeyGenDKGCommitment, KeyInitial, KeyPair, SharesCommitment};
 pub struct KeyStore {
     pub party_key: KeyInitial,
     pub signing_key: KeyPair,
-    pub party_num_int: u16, // why u32 originally???
+    pub party_num_int: u16,
     pub valid_com_vec: Vec<KeyGenDKGCommitment>,
 }
 

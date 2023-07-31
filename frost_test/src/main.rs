@@ -21,6 +21,7 @@ pub struct Sign {
     pub tr_uuid: String,
     pub tcn_config: [u16; 3],
     pub msg_hashed: String,
+    pub derive: String,
 }
 
 fn main() -> Outcome<()> {
@@ -41,8 +42,8 @@ fn main() -> Outcome<()> {
 
     match task {
         Task::Keygen(args) => {
-            let keystore = algo_keygen(&args.server, &args.tr_uuid, &args.tn_config)?;
-            // println!("Mnemonic phrase of key share = {}", &mnem);
+            let (mnem, keystore) = algo_keygen(&args.server, &args.tr_uuid, &args.tn_config)?;
+            println!("Mnemonic phrase of key share = {}", &mnem);
             let keystore_json = keystore.to_json()?;
             let _ = write_str_to_file(&kfpath, &keystore_json)?;
         }
@@ -54,6 +55,7 @@ fn main() -> Outcome<()> {
                 &args.server,
                 &args.tr_uuid,
                 &args.tcn_config,
+                &args.derive,
                 &msg_hashed,
                 &keystore,
             )?;
