@@ -1,10 +1,12 @@
 #![allow(non_snake_case)]
 
-use bip32::ChainCode;
+use bip32::{ChainCode, PublicKey};
+use curve25519_dalek::edwards::EdwardsPoint;
 use curve25519_dalek::{constants, ristretto::RistrettoPoint, scalar::Scalar};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha512};
 use std::collections::HashMap;
+use std::mem::transmute;
 
 use luban_core::MpcClientMessenger;
 use xuanmi_base_support::*;
@@ -23,7 +25,7 @@ pub fn algo_sign(
     server: &str,
     tr_uuid: &str,
     tcn_config: &[u16; 3],
-    derive: &str,
+    derv_path: &str,
     msg_hashed: &[u8],
     keystore: &KeyStore,
 ) -> Outcome<Signature> {
@@ -82,10 +84,11 @@ pub fn algo_sign(
     // #region round 1: collect signer IDs
     messenger.send_broadcast(party_num_int, round, &obj_to_json(&party_id)?)?;
     let round1_ans_vec = messenger.recv_broadcasts(party_num_int, parties, round);
-    let mut signers_vec: Vec<u16> = round1_ans_vec
-        .iter()
-        .map(|text| json_to_obj(text))
-        .collect::<Result<Vec<u16>, _>>()?;
+    let mut signers_vec: Vec<u16> = Vec::new();
+    for text in round1_ans_vec.iter() {
+        let signer_id: u16 = json_to_obj(text).catch_()?;
+        signers_vec.push(signer_id);
+    }
     if signers_vec.contains(&party_id) {
         throw!(
             name = InvalidKeystore,
@@ -111,9 +114,9 @@ pub fn algo_sign(
             )
         }
     };
-    let (tweak_sk, child_pk) = match derive.is_empty() {
+    let (tweak_sk, child_pk) = match derv_path.is_empty() {
         true => (Scalar::zero(), signing_key.group_public),
-        false => hd::algo_get_hd_key(derive, &signing_key.group_public, &chain_code).catch(
+        false => hd::algo_get_hd_key(derv_path, &signing_key.group_public, &chain_code).catch(
             ChildKeyDerivationFailed,
             &format!(
                 "Failed to {} where server=\"{}\", uuid=\"{}\", share_count=\"{}\", threshold=\"{}\"",
@@ -195,14 +198,36 @@ pub fn algo_sign(
             ) + exception_location)
         ),
     };
-    if !validate(&group_sig, signing_key.group_public).is_ok() {
+    if !validate(&group_sig, &signing_key.group_public).is_ok() {
         throw!(
             name = InvalidSignature,
             ctx = &(format!("Invalid Schnorr signature") + exception_location)
         );
     }
+    verify_solana(&group_sig, &child_pk).catch("", "Failed at verify_solana()")?;
     // #endregion
 
     println!("Finished sign");
     Ok(group_sig)
+}
+
+pub fn verify_solana(sig: &Signature, pk: &RistrettoPoint) -> Outcome<()> {
+    use ed25519_dalek::Signature as LibSignature;
+    let msg = &sig.hash;
+    let pk = {
+        let pk_bytes = pk.to_bytes();
+        let pk = ed25519_dalek::PublicKey::from_bytes(&pk_bytes).catch_()?;
+        pk
+    };
+    let sig = {
+        let r: EdwardsPoint = unsafe { transmute(sig.r) };
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes[..32].copy_from_slice(&r.compress().to_bytes());
+        sig_bytes[32..].copy_from_slice(&sig.z.to_bytes());
+        let sig = LibSignature::from_bytes(&sig_bytes).catch_()?;
+        sig
+    };
+
+    pk.verify_strict(msg, &sig).catch_()?;
+    Ok(())
 }

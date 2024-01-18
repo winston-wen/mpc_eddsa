@@ -634,7 +634,7 @@ pub fn get_ith_pubkey(index: u16, commitments: &Vec<KeyGenDKGCommitment>) -> Ris
 /// to performing validation of a Schnorr signature that has been signed by a
 /// single party.
 // pub fn validate(msg: &str, sig: &Signature, pubkey: RistrettoPoint) -> Result<(), &'static str> {
-pub fn validate(sig: &Signature, pubkey: RistrettoPoint) -> Result<(), &'static str> {
+pub fn validate(sig: &Signature, pubkey: &RistrettoPoint) -> Result<(), &'static str> {
     let challenge = generate_challenge(&sig.hash, sig.r);
     if sig.r != (&constants::RISTRETTO_BASEPOINT_TABLE * &sig.z) - (pubkey * challenge) {
         return Err("Signature is invalid");

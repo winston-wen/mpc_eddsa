@@ -42,7 +42,7 @@ fn main() -> Outcome<()> {
 
     match task {
         Task::Keygen(args) => {
-            let (mnem, keystore) = algo_keygen(&args.server, &args.tr_uuid, &args.tn_config)?;
+            let (mnem, keystore) = algo_keygen(&args.server, &args.tr_uuid, &args.tn_config).catch_()?;
             println!("Mnemonic phrase of key share = {}", &mnem);
             let keystore_json = keystore.to_json()?;
             let _ = write_str_to_file(&kfpath, &keystore_json)?;
