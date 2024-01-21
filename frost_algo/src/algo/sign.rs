@@ -212,7 +212,6 @@ pub fn algo_sign(
 }
 
 pub fn verify_solana(sig: &Signature, pk: &RistrettoPoint) -> Outcome<()> {
-    use ed25519_dalek::Signature as LibSignature;
     let msg = &sig.hash;
     let pk = {
         let pk_bytes = pk.to_bytes();
@@ -220,6 +219,7 @@ pub fn verify_solana(sig: &Signature, pk: &RistrettoPoint) -> Outcome<()> {
         pk
     };
     let sig = {
+        use ed25519_dalek::Signature as LibSignature;
         let r: EdwardsPoint = unsafe { transmute(sig.r) };
         let mut sig_bytes = [0u8; 64];
         sig_bytes[..32].copy_from_slice(&r.compress().to_bytes());
