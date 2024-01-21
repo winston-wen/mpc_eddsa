@@ -7,38 +7,32 @@
 2. Komlo和Goldberg提供的FROST的PoC代码
    <https://git.uwaterloo.ca/ckomlo/frost>
 
-默认情况下，本项目暂时支持：
+## 编译
 
-1. $(t,n)$-门限Ed25519签名算法Frost（`keygen`、`sign`）；
-2. 支持仿BIP32的HD Key衍生；
-3. 支持BIP39助记词；
+在项目根目录，执行`make`或`make release`。编译产物在`built`目录，有两个可执行文件：
+1. `frost_test` -- MPC算法客户端
+2. `luban_manager` -- MPC消息服务器
 
-## Build
+## 运行
 
-执行`make`或`make release`编译
+不论是测试keygen还是sign，先进入built目录，启动`luban_manager`。
 
-## Manager
+### Keygen
 
-运行`built`->`luban_manager`，以管理各个参与方之间的通信。
-
-## Keygen
-
-$(t,n)$-门限签名下，支持$n$方（如$P_1, P_2, ..., P_n$）共同发起`keygen`命令。
-
-进入`built`目录, 开三个终端分别执行
+进入`built`目录, 开三个终端分别执行如下三条命令。
 
 ```sh
 ./frost_test sample.keygen1.json k1.json
 ./frost_test sample.keygen2.json k2.json
 ./frost_test sample.keygen3.json k3.json 
 ```
-其中`keygen.json`是`keygen`的参数, `ki.json`是输出的`keystore`文件路径。
 
-## Sign message
+### Sign
 
-$(t,n)$-门限签名下，支持$t'$方（$t < t'\le n$，如$P_1, P_2, ..., P_{t'}$）共同发起`sign`命令、对一条信息进行标准EdDSA签名。
+进入`built`目录, 开两个终端，从如下三个命令任选两条执行。
 
 ```sh
+./frost_test sample.sign23.json k1.json
+./frost_test sample.sign23.json k2.json
 ./frost_test sample.sign23.json k3.json
 ```
-
