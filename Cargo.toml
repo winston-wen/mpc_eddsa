@@ -1,9 +1,8 @@
 [workspace]
+resolver = "2"
 
 members = [
-    "luban_core",
-    "frost_algo",
-    "luban_manager",
-    "frost_ffi",
-    "frost_test",
+    "mpc_algo",
+    "mpc_demo",
+    "mpc_sesman", # sesman = session manager
 ]
