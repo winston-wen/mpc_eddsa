@@ -35,6 +35,23 @@ demo_keygen: build
 	@tmux send-keys -t eddsa:p4  "cd $(shell pwd)/out && ./demo_keygen -t 2 -n 5 -m 4" C-m
 	@tmux send-keys -t eddsa:p5  "cd $(shell pwd)/out && ./demo_keygen -t 2 -n 5 -m 5" C-m
 
+demo_keygen_t0: build
+	@tmux new-session -s eddsa \
+		-n p1  -d ";" new-window \
+		-n p2  -d ";" new-window \
+		-n p3  -d ";" new-window \
+		-n p4  -d ";" new-window \
+		-n p5  -d ";" new-window \
+		-n man -d ";"
+	@sleep 1
+	@tmux send-keys -t eddsa:man "cd $(shell pwd)/out && ./mpc_sesman" C-m
+	@sleep 1
+	@tmux send-keys -t eddsa:p1  "cd $(shell pwd)/out && ./demo_keygen -t 0 -n 5 -m 1" C-m
+	@tmux send-keys -t eddsa:p2  "cd $(shell pwd)/out && ./demo_keygen -t 0 -n 5 -m 2" C-m
+	@tmux send-keys -t eddsa:p3  "cd $(shell pwd)/out && ./demo_keygen -t 0 -n 5 -m 3" C-m
+	@tmux send-keys -t eddsa:p4  "cd $(shell pwd)/out && ./demo_keygen -t 0 -n 5 -m 4" C-m
+	@tmux send-keys -t eddsa:p5  "cd $(shell pwd)/out && ./demo_keygen -t 0 -n 5 -m 5" C-m
+
 demo_sign: build
 	@tmux new-session -s eddsa \
 		-n p1  -d ";" new-window \
@@ -47,6 +64,15 @@ demo_sign: build
 	@tmux send-keys -t eddsa:p1  "cd $(shell pwd)/out && ./demo_sign -n 3 -s 1 -m 1" C-m
 	@tmux send-keys -t eddsa:p3  "cd $(shell pwd)/out && ./demo_sign -n 3 -s 2 -m 3" C-m
 	@tmux send-keys -t eddsa:p5  "cd $(shell pwd)/out && ./demo_sign -n 3 -s 3 -m 5" C-m
+
+demo_sign_t0: build
+	@tmux new-session -s eddsa \
+		-n p1  -d ";" new-window \
+		-n man -d ";"
+	@sleep 1
+	@tmux send-keys -t eddsa:man "cd $(shell pwd)/out && ./mpc_sesman" C-m
+	@sleep 1
+	@tmux send-keys -t eddsa:p1  "cd $(shell pwd)/out && ./demo_sign -n 1 -s 1 -m 1" C-m
 
 clean: kill_tmux
 	cargo clean

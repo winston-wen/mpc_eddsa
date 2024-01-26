@@ -201,9 +201,6 @@ impl KeyInitial {
         threshold: u16,
         rng: &mut R,
     ) -> Result<(SharesCommitment, Vec<Share>), &'static str> {
-        if threshold < 1 {
-            return Err("Threshold cannot be 0");
-        }
         if numshares < 1 {
             return Err("Number of shares cannot be 0");
         }

@@ -14,7 +14,7 @@ pub async fn algo_keygen(
     n_members: u16, // Number of keygen participants
     context: &str,  // Other parties challenge against this ctx
 ) -> Outcome<KeyStore> {
-    assert_throw!(1 <= th && th <= n_members);
+    assert_throw!(th <= n_members);
     assert_throw!((1..=n_members).contains(&my_id));
     let mut round: &str;
 
