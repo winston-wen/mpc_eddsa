@@ -108,14 +108,11 @@ impl Zeroize for Share {
 }
 
 impl KeyGenDKGProposedCommitment {
-    pub fn is_valid_zkp(&self, challenge: Scalar) -> Result<(), &'static str> {
-        if self.zkp.g_k
-            != (&constants::RISTRETTO_BASEPOINT_TABLE * &self.zkp.sigma)
-                - (self.get_commitment_to_secret() * challenge)
-        {
-            return Err("Signature is invalid");
-        }
-
+    pub fn is_valid_zkp(&self, challenge: Scalar) -> Outcome<()> {
+        let valid_zkp = self.zkp.g_k
+            == (&constants::RISTRETTO_BASEPOINT_TABLE * &self.zkp.sigma)
+                - (self.get_commitment_to_secret() * challenge);
+        assert_throw!(valid_zkp);
         Ok(())
     }
 
@@ -138,7 +135,7 @@ impl Share {
     }
 
     /// Verify that a share is consistent with a commitment.
-    fn verify_share(&self, com: &SharesCommitment) -> Result<(), &'static str> {
+    fn verify_share(&self, com: &SharesCommitment) -> Outcome<()> {
         let f_result = &constants::RISTRETTO_BASEPOINT_TABLE * &self.value;
 
         let term = Scalar::from(self.receiver_index);
@@ -154,10 +151,7 @@ impl Share {
                 result *= term;
             }
         }
-
-        if !(f_result == result) {
-            return Err("Share is invalid.");
-        }
+        assert_throw!(f_result == result, "Invalid share");
 
         Ok(())
     }
@@ -197,18 +191,14 @@ impl KeyInitial {
     /// for testability
     pub fn generate_shares<R: RngCore + CryptoRng>(
         &self,
-        numshares: u16,
-        threshold: u16,
+        n: u16,
+        th: u16,
         rng: &mut R,
-    ) -> Result<(SharesCommitment, Vec<Share>), &'static str> {
-        if numshares < 1 {
-            return Err("Number of shares cannot be 0");
-        }
-        if threshold > numshares {
-            return Err("Threshold cannot exceed numshares");
-        }
+    ) -> Outcome<(SharesCommitment, Vec<Share>)> {
+        assert_throw!(n >= 1);
+        assert_throw!(th < n);
 
-        let numcoeffs = threshold;
+        let numcoeffs = th;
         let mut coefficients = (0..numcoeffs)
             .map(|_| Scalar::random(rng))
             .collect::<Vec<_>>();
@@ -218,7 +208,7 @@ impl KeyInitial {
             acc
         });
 
-        let shares = (1..=numshares)
+        let shares = (1..=n)
             .map(|index| {
                 // Evaluate the polynomial with `secret` as the constant term
                 // and `coeffs` as the other coefficients at the point x=share_index
@@ -256,7 +246,7 @@ impl KeyInitial {
     pub fn keygen_receive_commitments_and_validate_peers(
         peer_commitments: &[KeyGenDKGProposedCommitment],
         context: &str,
-    ) -> Result<(Vec<u16>, Vec<KeyGenDKGCommitment>), &'static str> {
+    ) -> Outcome<(Vec<u16>, Vec<KeyGenDKGCommitment>)> {
         let mut invalid_peer_ids = Vec::new();
         let mut valid_peer_commitments: Vec<KeyGenDKGCommitment> =
             Vec::with_capacity(peer_commitments.len());
@@ -267,7 +257,8 @@ impl KeyInitial {
                 context,
                 &commitment.get_commitment_to_secret(),
                 &commitment.zkp.g_k,
-            )?;
+            )
+            .catch_()?;
 
             if !commitment.is_valid_zkp(challenge).is_ok() {
                 invalid_peer_ids.push(commitment.index);
@@ -286,14 +277,14 @@ impl KeyInitial {
         party_shares: Vec<Share>,
         shares_com_vec: Vec<KeyGenDKGCommitment>,
         index: u16,
-    ) -> Result<KeyPair, &'static str> {
+    ) -> Outcome<KeyPair> {
         // first, verify the integrity of the shares
         for share in &party_shares {
             let commitment = shares_com_vec
                 .iter()
                 .find(|comm| comm.index == share.generator_index)
-                .ok_or("Received share with no corresponding commitment")?;
-            share.verify_share(&commitment.shares_commitment)?;
+                .ifnone("", "Received share with no corresponding commitment")?;
+            share.verify_share(&commitment.shares_commitment).catch_()?;
         }
 
         let x_i = party_shares
@@ -323,18 +314,20 @@ impl KeyPair {
         cached_com_count: usize,
         participant_index: u16,
         rng: &mut R,
-    ) -> Result<(Vec<SigningCommitmentPair>, Vec<SigningNoncePair>), &'static str> {
+    ) -> Outcome<(Vec<SigningCommitmentPair>, Vec<SigningNoncePair>)> {
         let (commitments, nonces): (Vec<_>, Vec<_>) = (0..cached_com_count)
             .map(|_| {
-                let nonce_pair = SigningNoncePair::new(rng)?;
+                let nonce_pair = SigningNoncePair::new(rng).catch_()?;
                 let commitment = SigningCommitmentPair::new(
                     participant_index,
                     nonce_pair.d.public,
                     nonce_pair.e.public,
-                )?;
+                )
+                .catch_()?;
                 Ok((commitment, nonce_pair))
             })
-            .collect::<Result<Vec<_>, &'static str>>()?
+            .collect::<Outcome<Vec<_>>>()
+            .catch_()?
             .into_iter()
             .unzip();
 
@@ -350,7 +343,7 @@ impl KeyPair {
         signing_commitments: &Vec<SigningCommitmentPair>, // B, but how to construct B???
         signing_nonces: &mut Vec<SigningNoncePair>,
         msg: &[u8],
-    ) -> Result<SigningResponse, &'static str> {
+    ) -> Outcome<SigningResponse> {
         // no message checking???
         // no D_l and E_l checking???
 
@@ -362,30 +355,33 @@ impl KeyPair {
         }
 
         // R = k * G = sum(D_l + E_l * rho_l)
-        let group_commitment = gen_group_commitment(&signing_commitments, &bindings)?;
+        let group_commitment = gen_group_commitment(&signing_commitments, &bindings).catch_()?;
 
         let indices = signing_commitments
             .iter()
             .map(|item| item.index)
             .collect::<Vec<_>>();
 
-        let lambda_i = get_lagrange_coeff(0, self.index, &indices)?;
+        let lambda_i = get_lagrange_coeff(0, self.index, &indices).catch_()?;
 
         // find the corresponding nonces for this participant
         let my_comm = signing_commitments
             .iter()
             .find(|item| item.index == self.index)
-            .ok_or("No signing commitment for signer")?;
+            .ok_or("No signing commitment for signer")
+            .catch_()?;
 
         let signing_nonce_position = signing_nonces
             .iter_mut()
             .position(|item| item.d.public == my_comm.g_d && item.e.public == my_comm.g_e)
-            .ok_or("No matching signing nonce for signer")?;
+            .ok_or("No matching signing nonce for signer")
+            .catch_()?;
 
         // retrieve d_i, e_i
         let signing_nonce = signing_nonces
             .get(signing_nonce_position)
-            .ok_or("cannot retrieve nonce from position~")?;
+            .ok_or("cannot retrieve nonce from position~")
+            .catch_()?;
 
         let my_rho_i = bindings[&self.index]; // [party_id]
 
@@ -416,10 +412,11 @@ impl KeyPair {
         signing_commitments: &Vec<SigningCommitmentPair>,
         signing_responses: &Vec<SigningResponse>,
         signer_pubkeys: &HashMap<u16, RistrettoPoint>,
-    ) -> Result<Signature, &'static str> {
-        if signing_commitments.len() != signing_responses.len() {
-            return Err("Mismatched number of commitments and responses");
-        }
+    ) -> Outcome<Signature> {
+        assert_throw!(
+            signing_commitments.len() == signing_responses.len(),
+            "Mismatched number of commitments and responses"
+        );
         // first, make sure that each commitment corresponds to exactly one response
         let mut commitment_indices = signing_commitments
             .iter()
@@ -433,9 +430,10 @@ impl KeyPair {
         commitment_indices.sort();
         response_indices.sort();
 
-        if commitment_indices != response_indices {
-            return Err("Mismatched commitment without corresponding response");
-        }
+        assert_throw!(
+            commitment_indices == response_indices,
+            "Mismatched commitment without corresponding response"
+        );
 
         let mut bindings: HashMap<u16, Scalar> = HashMap::with_capacity(signing_commitments.len());
 
@@ -445,7 +443,7 @@ impl KeyPair {
             let _ = bindings.insert(comm.index, rho_i);
         }
 
-        let group_commitment = gen_group_commitment(&signing_commitments, &bindings)?;
+        let group_commitment = gen_group_commitment(&signing_commitments, &bindings).catch_()?;
         let challenge = generate_challenge(msg, group_commitment);
 
         // check the validity of each participant's response
@@ -457,21 +455,20 @@ impl KeyPair {
                 .map(|item| item.index)
                 .collect::<Vec<_>>();
 
-            let lambda_i = get_lagrange_coeff(0, resp.index, &indices)?;
+            let lambda_i = get_lagrange_coeff(0, resp.index, &indices).catch_()?;
 
             let matching_commitment = signing_commitments
                 .iter()
                 .find(|x| x.index == resp.index)
-                .ok_or("No matching commitment for response")?;
+                .ifnone("", "No matching commitment for response")?;
 
             let commitment_i = matching_commitment.g_d + (matching_commitment.g_e * matching_rho_i);
             let signer_pubkey = signer_pubkeys
                 .get(&matching_commitment.index)
-                .ok_or("commitment does not have a matching signer public key!")?;
+                .ifnone("", "commitment does not have a matching signer public key!")?;
 
-            if !resp.is_valid(&signer_pubkey, lambda_i, &commitment_i, challenge) {
-                return Err("Invalid signer response");
-            }
+            let resp_is_valid = resp.is_valid(signer_pubkey, lambda_i, &commitment_i, challenge);
+            assert_throw!(resp_is_valid, "Invalid signer response");
         }
 
         let group_resp = signing_responses
@@ -504,26 +501,36 @@ impl SigningCommitmentPair {
         index: u16,
         g_d: RistrettoPoint,
         g_e: RistrettoPoint,
-    ) -> Result<SigningCommitmentPair, &'static str> {
-        if g_d == RistrettoPoint::identity() || g_e == RistrettoPoint::identity() {
-            return Err("Invalid signing commitment");
-        }
+    ) -> Outcome<SigningCommitmentPair> {
+        assert_throw!(
+            g_d != RistrettoPoint::identity(),
+            "Invalid signing commitment"
+        );
+        assert_throw!(
+            g_e != RistrettoPoint::identity(),
+            "Invalid signing commitment"
+        );
 
         Ok(SigningCommitmentPair { g_d, g_e, index })
     }
 }
 
 impl SigningNoncePair {
-    pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Result<SigningNoncePair, &'static str> {
+    pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Outcome<SigningNoncePair> {
         let (d, e) = (Scalar::random(rng), Scalar::random(rng));
         let (d_pub, e_pub) = (
             &constants::RISTRETTO_BASEPOINT_TABLE * &d,
             &constants::RISTRETTO_BASEPOINT_TABLE * &e,
         );
 
-        if d_pub == RistrettoPoint::identity() || e_pub == RistrettoPoint::identity() {
-            return Err("Invalid nonce commitment");
-        }
+        assert_throw!(
+            d_pub != RistrettoPoint::identity(),
+            "Invalid nonce commitment"
+        );
+        assert_throw!(
+            e_pub != RistrettoPoint::identity(),
+            "Invalid nonce commitment"
+        );
 
         Ok(SigningNoncePair {
             d: Nonce {
@@ -543,7 +550,7 @@ pub fn generate_dkg_challenge(
     context: &str,
     public: &RistrettoPoint,
     commitment: &RistrettoPoint,
-) -> Result<Scalar, &'static str> {
+) -> Outcome<Scalar> {
     let mut hasher = Sha256::new();
     // the order of the below may change to allow for EdDSA verification compatibility
     hasher.update(commitment.compress().to_bytes());
@@ -567,7 +574,7 @@ pub fn get_lagrange_coeff(
     x_coord: u16,
     signer_index: u16,
     all_signer_indices: &[u16],
-) -> Result<Scalar, &'static str> {
+) -> Outcome<Scalar> {
     let mut num = Scalar::one();
     let mut den = Scalar::one();
     for j in all_signer_indices {
@@ -578,9 +585,7 @@ pub fn get_lagrange_coeff(
         den *= Scalar::from(*j) - Scalar::from(signer_index);
     }
 
-    if den == Scalar::zero() {
-        return Err("Duplicate shares provided");
-    }
+    assert_throw!(den != Scalar::zero(), "Duplicate shares provided");
 
     let lagrange_coeff = num * den.invert();
 
@@ -621,12 +626,11 @@ pub fn get_ith_pubkey(index: u16, commitments: &Vec<KeyGenDKGCommitment>) -> Ris
 /// validate performs a plain Schnorr validation operation; this is identical
 /// to performing validation of a Schnorr signature that has been signed by a
 /// single party.
-// pub fn validate(msg: &str, sig: &Signature, pubkey: RistrettoPoint) -> Result<(), &'static str> {
-pub fn validate(sig: &Signature, pubkey: &RistrettoPoint) -> Result<(), &'static str> {
+// pub fn validate(msg: &str, sig: &Signature, pubkey: RistrettoPoint) -> Outcome<()> {
+pub fn validate(sig: &Signature, pubkey: &RistrettoPoint) -> Outcome<()> {
     let challenge = generate_challenge(&sig.hash, sig.r);
-    if sig.r != (&constants::RISTRETTO_BASEPOINT_TABLE * &sig.z) - (pubkey * challenge) {
-        return Err("Signature is invalid");
-    }
+    let sig_valid = sig.r == (&constants::RISTRETTO_BASEPOINT_TABLE * &sig.z) - pubkey * challenge;
+    assert_throw!(sig_valid, "Signature is invalid");
 
     Ok(())
 }
@@ -671,7 +675,7 @@ fn gen_rho_i(index: u16, msg: &[u8], signing_commitments: &Vec<SigningCommitment
 fn gen_group_commitment(
     signing_commitments: &Vec<SigningCommitmentPair>,
     bindings: &HashMap<u16, Scalar>,
-) -> Result<RistrettoPoint, &'static str> {
+) -> Outcome<RistrettoPoint> {
     let mut accumulator = RistrettoPoint::identity();
 
     for commitment in signing_commitments {
@@ -690,3 +694,5 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use zeroize::Zeroize;
+
+use crate::prelude::*;

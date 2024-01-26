@@ -46,10 +46,17 @@ async fn main() -> Outcome<()> {
         hasher.finalize().to_vec()
     };
 
-    let signature = algo_sign(signer_id, n_signers, "m/1/14/514", &msg_hash, &keystore)
+    let sig = algo_sign(signer_id, n_signers, "m/1/14/514", &msg_hash, &keystore)
         .await
         .catch_()?;
-    println!("{signature:?}");
+    '_print: {
+        let sig_r = hex::encode(&sig.r.compress().as_bytes());
+        let sig_s = hex::encode(&sig.z.as_bytes());
+        let tx_hash = hex::encode(&sig.hash);
+        println!("sig_r: {}", sig_r);
+        println!("sig_s: {}", sig_s);
+        println!("tx_hash: {}", tx_hash);
+    }
 
     Ok(())
 }
