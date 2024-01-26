@@ -16,14 +16,14 @@ pub async fn algo_sign(
     let mut valid_com_vec = keystore.valid_com_vec.clone();
     let _n_keygen_members = keystore.valid_com_vec.len() as u16;
     let my_keygen_id = keystore.member_id;
-    let mut round: &str;
+    let mut topic: &str;
     let mut rng = OsRng;
 
-    round = "my_keygen_id";
-    send_bcast(my_signer_id, round, &my_keygen_id)
+    topic = "my_keygen_id";
+    send_bcast(my_signer_id, topic, &my_keygen_id)
         .await
         .catch_()?;
-    let mut keygen_id_vec: Vec<u16> = recv_bcast_wo_src(my_signer_id, n_signers, round)
+    let mut keygen_id_vec: Vec<u16> = recv_bcast_wo_src(my_signer_id, n_signers, topic)
         .await
         .catch_()?;
     assert_throw!(
@@ -58,12 +58,12 @@ pub async fn algo_sign(
     let signing_com_pair_i: Vec<SigningCommitmentPair> = _obj.0;
     let mut signing_nonce_pair_i: Vec<SigningNoncePair> = _obj.1;
 
-    round = "signing_com_pair_i[0]";
-    send_bcast(my_signer_id, round, &signing_com_pair_i[0])
+    topic = "signing_com_pair_i";
+    send_bcast(my_signer_id, topic, &signing_com_pair_i[0])
         .await
         .catch_()?;
     let signing_com_pair_vec: Vec<SigningCommitmentPair> =
-        recv_bcast(n_signers, round).await.catch_()?;
+        recv_bcast(n_signers, topic).await.catch_()?;
     // #endregion
 
     // #region round 3: broadcast signing response
@@ -71,12 +71,12 @@ pub async fn algo_sign(
         .sign_and_respond(&signing_com_pair_vec, &mut signing_nonce_pair_i, msg_hash)
         .catch_()?;
 
-    let round = "response_i";
-    send_bcast(my_signer_id, round, &response_i)
+    topic = "response_i";
+    send_bcast(my_signer_id, topic, &response_i)
         .await
         .catch_()?;
-    let response_vec: Vec<SigningResponse> = recv_bcast(n_signers, round).await.catch_()?;
-    println!("Finished sign round {round}");
+    let response_vec: Vec<SigningResponse> = recv_bcast(n_signers, topic).await.catch_()?;
+    println!("Finished sign round {topic}");
     // #endregion
 
     // #region: combine signature shares and verify

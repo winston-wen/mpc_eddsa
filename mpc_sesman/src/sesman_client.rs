@@ -13,11 +13,11 @@ pub mod prelude {
 pub struct Message {
     pub src: u16,
     pub dst: u16,
-    pub round: String,
+    pub topic: String,
     pub obj: Option<Vec<u8>>,
 }
 
-pub async fn send_bcast<T>(src: u16, round: &str, obj: &T) -> Outcome<()>
+pub async fn send_bcast<T>(src: u16, topic: &str, obj: &T) -> Outcome<()>
 where
     T: Serialize + DeserializeOwned,
 {
@@ -25,30 +25,16 @@ where
     let msg = Message {
         src,
         dst: PARTY_ID_BCAST,
-        round: round.to_string(),
+        topic: topic.to_string(),
         obj: Some(obj.clone()),
     };
     let client = reqwest::Client::new();
     let _void = client.post(URL_SEND).json(&msg).send().await.catch_()?;
 
-    '_debug: {
-        // use blake2::{
-        //     digest::{Update, VariableOutput},
-        //     Blake2bVar,
-        // };
-        // let mut hasher = Blake2bVar::new(10).unwrap();
-        // hasher.update(&obj);
-        // let hash = hasher.finalize_boxed().to_vec();
-        // let hash_b58 = bs58::encode(&hash).into_string();
-        // println!(
-        //     "[cl::send_bcast], src={}, dst={}, round={}, hash={}",
-        //     src, PARTY_ID_BCAST, round, hash_b58
-        // );
-    }
     Ok(())
 }
 
-pub async fn send_p2p<T>(src: u16, dst: u16, round: &str, obj: &T) -> Outcome<()>
+pub async fn send_p2p<T>(src: u16, dst: u16, topic: &str, obj: &T) -> Outcome<()>
 where
     T: Serialize + DeserializeOwned,
 {
@@ -56,30 +42,17 @@ where
     let msg = Message {
         src,
         dst,
-        round: round.to_string(),
+        topic: topic.to_string(),
         obj: Some(obj.clone()),
     };
     let client = reqwest::Client::new();
     let _void = client.post(URL_SEND).json(&msg).send().await.catch_()?;
-    '_debug: {
-        // use blake2::{
-        //     digest::{Update, VariableOutput},
-        //     Blake2bVar,
-        // };
-        // let mut hasher = Blake2bVar::new(10).unwrap();
-        // hasher.update(&obj);
-        // let hash = hasher.finalize_boxed().to_vec();
-        // let hash_b58 = bs58::encode(&hash).into_string();
-        // println!(
-        //     "[cl::send_p2p], src={}, dst={}, round={}, hash={}",
-        //     src, dst, round, hash_b58
-        // );
-    }
+
     Ok(())
 }
 
 /// exclude src
-pub async fn recv_bcast_wo_src<T>(exclude_src: u16, n_members: u16, round: &str) -> Outcome<Vec<T>>
+pub async fn recv_bcast_wo_src<T>(exclude_src: u16, n_members: u16, topic: &str) -> Outcome<Vec<T>>
 where
     T: Serialize + DeserializeOwned,
 {
@@ -92,7 +65,7 @@ where
         let index = Message {
             src: id,
             dst: PARTY_ID_BCAST,
-            round: round.to_string(),
+            topic: topic.to_string(),
             obj: None,
         };
         'inner: loop {
@@ -115,7 +88,7 @@ where
     Ok(ret)
 }
 
-pub async fn recv_bcast<T>(n_members: u16, round: &str) -> Outcome<Vec<T>>
+pub async fn recv_bcast<T>(n_members: u16, topic: &str) -> Outcome<Vec<T>>
 where
     T: Serialize + DeserializeOwned,
 {
@@ -125,7 +98,7 @@ where
         let index = Message {
             src: id,
             dst: PARTY_ID_BCAST,
-            round: round.to_string(),
+            topic: topic.to_string(),
             obj: None,
         };
         'inner: loop {
@@ -148,7 +121,7 @@ where
     Ok(ret)
 }
 
-pub async fn recv_p2p<T>(src: u16, dst: u16, round: &str) -> Outcome<T>
+pub async fn recv_p2p<T>(src: u16, dst: u16, topic: &str) -> Outcome<T>
 where
     T: Serialize + DeserializeOwned,
 {
@@ -156,7 +129,7 @@ where
     let index = Message {
         src,
         dst,
-        round: round.to_string(),
+        topic: topic.to_string(),
         obj: None,
     };
     loop {
@@ -177,7 +150,7 @@ where
 }
 
 /// Exclude the message whose src == dst
-pub async fn gather_p2p<T>(dst: u16, n_members: u16, round: &str) -> Outcome<Vec<T>>
+pub async fn gather_p2p<T>(dst: u16, n_members: u16, topic: &str) -> Outcome<Vec<T>>
 where
     T: Serialize + DeserializeOwned,
 {
@@ -186,20 +159,20 @@ where
         if src == dst {
             continue;
         }
-        let obj: T = recv_p2p(src, dst, round).await.catch_()?;
+        let obj: T = recv_p2p(src, dst, topic).await.catch_()?;
         ret.push(obj);
     }
     Ok(ret)
 }
 
 /// Include the message whose src == dst
-pub async fn gather_p2p_all<T>(dst: u16, n_members: u16, round: &str) -> Outcome<Vec<T>>
+pub async fn gather_p2p_all<T>(dst: u16, n_members: u16, topic: &str) -> Outcome<Vec<T>>
 where
     T: Serialize + DeserializeOwned,
 {
     let mut ret: Vec<T> = Vec::with_capacity(n_members as usize - 1);
     for src in 1..=n_members {
-        let obj: T = recv_p2p(src, dst, round).await.catch_()?;
+        let obj: T = recv_p2p(src, dst, topic).await.catch_()?;
         ret.push(obj);
     }
     Ok(ret)

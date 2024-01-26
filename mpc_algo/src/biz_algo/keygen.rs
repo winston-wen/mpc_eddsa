@@ -16,7 +16,7 @@ pub async fn algo_keygen(
 ) -> Outcome<KeyStore> {
     assert_throw!(th <= n_members);
     assert_throw!((1..=n_members).contains(&my_id));
-    let mut round: &str;
+    let mut topic: &str;
 
     // #region generate commitment and zkp for broadcasting
     let mut rng = OsRng;
@@ -54,10 +54,10 @@ pub async fn algo_keygen(
     // #endregion
 
     // #region round 1: send public commitment to coeffs and a proof of knowledge to u_i
-    round = "dkg_commitment";
-    send_bcast(my_id, round, &dkg_commitment).await.catch_()?;
+    topic = "dkg_commitment";
+    send_bcast(my_id, topic, &dkg_commitment).await.catch_()?;
     let mut dkg_com_vec: Vec<KeyGenDKGProposedCommitment> =
-        recv_bcast(n_members, round).await.catch_()?;
+        recv_bcast(n_members, topic).await.catch_()?;
     println!("Exchanged commitments");
     // #endregion
 
@@ -83,7 +83,7 @@ pub async fn algo_keygen(
     // #endregion
 
     // #region round 2: send secret shares via aes-p2p
-    round = "aead_pack_i";
+    topic = "aead_pack_i";
     let mut j = 0;
     for (k, i) in (1..=n_members).enumerate() {
         if i != my_id {
@@ -91,12 +91,12 @@ pub async fn algo_keygen(
             let key_i = &enc_keys[j].compress().to_bytes();
             let plaintext = shares[k].get_value().to_bytes();
             let aead_pack_i = aes_encrypt(key_i, &plaintext).catch_()?;
-            send_p2p(my_id, i, round, &aead_pack_i).await.catch_()?;
+            send_p2p(my_id, i, topic, &aead_pack_i).await.catch_()?;
             j += 1;
         }
     }
-    let aead_vec: Vec<AEAD> = gather_p2p(my_id, n_members, round).await.catch_()?;
-    println!("Finished keygen round {round}");
+    let aead_vec: Vec<AEAD> = gather_p2p(my_id, n_members, topic).await.catch_()?;
+    println!("Finished keygen round {topic}");
     // #endregion
 
     // #region retrieve private signing key share

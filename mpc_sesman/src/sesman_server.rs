@@ -32,7 +32,7 @@ async fn getmsg(Json(key): Json<Message>) -> Result<Json<Message>, String> {
     let _rows = sqlx::query(SELECT)
         .bind(key.src as i64)
         .bind(key.dst as i64)
-        .bind(&key.round)
+        .bind(&key.topic)
         .fetch_all(DB.get().unwrap())
         .await;
     if _rows.is_err() {
@@ -58,26 +58,12 @@ async fn postmsg(Json(msg): Json<Message>) -> Result<(), String> {
     let x = sqlx::query(INSERT)
         .bind(msg.src as i64)
         .bind(msg.dst as i64)
-        .bind(&msg.round)
+        .bind(&msg.topic)
         .bind(&obj)
         .execute(DB.get().unwrap())
         .await;
     if x.is_err() {
         return Err("ERROR: DB insert failed\r\n".to_string());
-    }
-    '_debug: {
-        // use blake2::{
-        //     digest::{Update, VariableOutput},
-        //     Blake2bVar,
-        // };
-        // let mut hasher = Blake2bVar::new(10).unwrap();
-        // hasher.update(&obj);
-        // let hash = hasher.finalize_boxed().to_vec();
-        // let hash_b58 = bs58::encode(&hash).into_string();
-        // println!(
-        //     "[se::postmsg], src={}, dst={}, round={}, hash={}",
-        //     msg.src, msg.dst, msg.round, hash_b58
-        // );
     }
 
     Ok(())
@@ -102,17 +88,17 @@ const CREATE_TABLE: &str = r#"
 CREATE TABLE messages (
     party_from INTEGER NOT NULL,
     party_to INTEGER NOT NULL,
-    round TEXT NOT NULL,
+    topic TEXT NOT NULL,
     value BLOB NOT NULL,
-    PRIMARY KEY (party_from, party_to, round)
+    PRIMARY KEY (party_from, party_to, topic)
 )"#;
 
 const SELECT: &str = r#"
 SELECT value FROM messages
-WHERE party_from = ? AND party_to = ? AND round = ?
+WHERE party_from = ? AND party_to = ? AND topic = ?
 "#;
 
 const INSERT: &str = r#"
-INSERT INTO messages (party_from, party_to, round, value)
+INSERT INTO messages (party_from, party_to, topic, value)
 VALUES (?, ?, ?, ?)
 "#;
