@@ -80,7 +80,7 @@ use mpc_sesman::Message;
 use sqlx::{Row, SqlitePool};
 use tokio::net::TcpListener;
 
-const SQLITE_PATH: &str = "/dev/shm/luban.db";
+const SQLITE_PATH: &str = "/dev/shm/mpc_eddsa.db";
 
 static DB: OnceLock<SqlitePool> = OnceLock::new();
 
