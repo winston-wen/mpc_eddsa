@@ -2,20 +2,22 @@
 pub struct KeyStore {
     pub party_key: KeyInitial,
     pub signing_key: KeyPair,
-    pub valid_com_vec: Vec<KeyGenDKGCommitment>,
+    pub valid_com_dict: HashMap<u16, KeyGenDKGCommitment>,
 
     pub member_id: u16,
     pub th: u16,
 }
 
 pub async fn algo_keygen(
-    my_id: u16,     // My party id, within 1..=n_members
-    th: u16,        // At least `th + 1` members during sign
-    n_members: u16, // Number of keygen participants
-    context: &str,  // Other parties challenge against this ctx
+    my_id: u16,
+    th: u16, // At least `th + 1` members during sign
+    members: &HashSet<u16>,
+    context: &str, // Other parties challenge against this ctx
 ) -> Outcome<KeyStore> {
-    assert_throw!(th <= n_members);
-    assert_throw!((1..=n_members).contains(&my_id));
+    assert_throw!(usize::from(th) <= members.len());
+    assert_throw!(members.contains(&my_id));
+    let mut other_members = members.clone();
+    other_members.remove(&my_id);
     let mut topic: &str;
 
     // #region generate commitment and zkp for broadcasting
@@ -27,11 +29,9 @@ pub async fn algo_keygen(
         let phrase = mnemonic.phrase().to_string();
         drop(phrase);
     }
-    let _obj: _ = party_key
-        .generate_shares(n_members, th, &mut rng)
-        .catch_()?;
+    let _obj: _ = party_key.generate_shares(members, th, &mut rng).catch_()?;
     let shares_com: SharesCommitment = _obj.0;
-    let mut shares: Vec<Share> = _obj.1;
+    let mut shares: HashMap<u16, Share> = _obj.1;
 
     let challenge = generate_dkg_challenge(
         my_id,
@@ -43,7 +43,7 @@ pub async fn algo_keygen(
     let sigma = &party_key.k + &party_key.u_i * challenge;
 
     let dkg_commitment = KeyGenDKGProposedCommitment {
-        index: my_id,
+        id: my_id,
         shares_commitment: shares_com,
         zkp: KeyGenZKP {
             g_k: party_key.g_k,
@@ -55,82 +55,71 @@ pub async fn algo_keygen(
 
     // #region round 1: send public commitment to coeffs and a proof of knowledge to u_i
     topic = "dkg_commitment";
-    send_bcast(my_id, topic, &dkg_commitment).await.catch_()?;
-    let mut dkg_com_vec: Vec<KeyGenDKGProposedCommitment> =
-        recv_bcast(n_members, topic).await.catch_()?;
+    scatter(my_id, members, topic, &dkg_commitment)
+        .await
+        .catch_()?;
+    let mut proposed_com_dict: HashMap<u16, KeyGenDKGProposedCommitment> =
+        gather(members, my_id, topic).await.catch_()?;
     println!("Exchanged commitments");
     // #endregion
 
     // #region verify commitment and zkp from round 1 and construct aes keys
-    let _obj: _ = KeyInitial::keygen_receive_commitments_and_validate_peers(&dkg_com_vec, &context)
-        .catch_()?;
-    let invalid_peer_ids: Vec<u16> = _obj.0;
-    let valid_com_vec: Vec<KeyGenDKGCommitment> = _obj.1;
-    assert_throw!(
-        invalid_peer_ids.is_empty(),
-        &format!("Invalid zkp from parties {:?}", invalid_peer_ids)
-    );
-    dkg_com_vec.iter_mut().for_each(|x| x.zeroize());
+    let valid_com_dict: HashMap<u16, KeyGenDKGCommitment> =
+        KeyInitial::keygen_validate_peers(&proposed_com_dict, &context).catch_()?;
+    for com in proposed_com_dict.values_mut() {
+        com.zeroize();
+    }
 
-    let mut enc_keys: Vec<RistrettoPoint> = Vec::new();
-    for i in 1..=n_members {
-        if i != my_id {
-            enc_keys.push(
-                &valid_com_vec[i as usize - 1].shares_commitment.commitment[0] * &party_key.u_i,
-            );
-        }
+    let mut aes_key_dict: HashMap<u16, [u8; 32]> = HashMap::new();
+    for id in other_members.iter() {
+        let com = valid_com_dict.get(id).ifnone_()?;
+        let aes_key = com.shares_commitment.commitment[0] * &party_key.u_i;
+        let aes_key = aes_key.compress().to_bytes();
+        aes_key_dict.insert(*id, aes_key);
     }
     // #endregion
 
     // #region round 2: send secret shares via aes-p2p
     topic = "aead_pack_i";
-    let mut j = 0;
-    for (k, i) in (1..=n_members).enumerate() {
-        if i != my_id {
-            // prepare encrypted share for party i
-            let key_i = &enc_keys[j].compress().to_bytes();
-            let plaintext = shares[k].get_value().to_bytes();
-            let aead_pack_i = aes_encrypt(key_i, &plaintext).catch_()?;
-            send_p2p(my_id, i, topic, &aead_pack_i).await.catch_()?;
-            j += 1;
-        }
+    for id in other_members.iter() {
+        let aes_key = aes_key_dict.get(id).ifnone_()?;
+        let plaintext = shares.get(id).ifnone_()?.get_value().to_bytes();
+        let aead_pack_i = aes_encrypt(aes_key, &plaintext).catch_()?;
+        send(my_id, *id, topic, &aead_pack_i).await.catch_()?;
     }
-    let aead_vec: Vec<AEAD> = gather_p2p(my_id, n_members, topic).await.catch_()?;
+    let aead_dict: HashMap<u16, AEAD> = gather(&other_members, my_id, topic).await.catch_()?;
     println!("Finished keygen round {topic}");
     // #endregion
 
     // #region retrieve private signing key share
-    let mut j = 0;
-    let mut party_shares: Vec<Share> = Vec::new();
-    for i in 1..=n_members {
-        if i == my_id {
-            party_shares.push(shares[(i - 1) as usize].clone());
-            shares.zeroize();
-        } else {
-            let aead_pack = aead_vec.get(j).ifnone_()?;
-            let key_i = enc_keys.get(j).ifnone_()?.compress().to_bytes();
-            let out = aes_decrypt(&key_i, &aead_pack).catch_()?;
-            let mut out_arr = [0u8; 32];
-            out_arr.copy_from_slice(&out);
-            let out_fe = Share::new_from(i, my_id, Scalar::from_bytes_mod_order(out_arr));
-            party_shares.push(out_fe);
-            j += 1;
-        }
+    let mut party_shares: HashMap<u16, Share> = HashMap::new();
+    party_shares.insert(my_id, shares.get(&my_id).ifnone_()?.clone());
+    for x in shares.values_mut() {
+        x.zeroize();
+    }
+    for id in other_members.iter() {
+        let aes_key = aes_key_dict.get(id).ifnone_()?;
+        let aead_pack = aead_dict.get(id).ifnone_()?;
+        let out = aes_decrypt(aes_key, &aead_pack).catch_()?;
+        assert_throw!(out.len() == 32);
+        let mut out_arr = [0u8; 32];
+        out_arr.copy_from_slice(&out);
+        let out_fe = Share::new_from(*id, my_id, Scalar::from_bytes_mod_order(out_arr));
+        party_shares.insert(*id, out_fe);
     }
 
-    let signing_key: KeyPair = KeyInitial::keygen_verify_share_construct_keypair(
-        party_shares.clone(),
-        valid_com_vec.clone(),
-        my_id,
-    )
-    .catch_()?;
-    party_shares.iter_mut().for_each(|x| x.zeroize());
+    let signing_key: KeyPair =
+        KeyInitial::keygen_verify_share_construct_keypair(&party_shares, &valid_com_dict, my_id)
+            .catch_()?;
+    for x in party_shares.values_mut() {
+        x.zeroize();
+    }
     // #endregion
 
     let keystore = KeyStore {
         party_key,
         signing_key,
-        valid_com_vec,
+        valid_com_dict,
 
         member_id: my_id,
         th,
@@ -140,8 +129,10 @@ pub async fn algo_keygen(
     Ok(keystore)
 }
 
-use curve25519_dalek::{ristretto::RistrettoPoint, scalar::Scalar};
-use mpc_sesman::{gather_p2p, recv_bcast, send_bcast, send_p2p};
+use std::collections::{HashMap, HashSet};
+
+use curve25519_dalek::scalar::Scalar;
+use mpc_sesman::{gather, scatter, send};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;

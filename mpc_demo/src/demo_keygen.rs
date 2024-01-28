@@ -3,7 +3,7 @@ async fn main() -> Outcome<()> {
     let matches = Command::new("demo_keygen")
         .arg(
             Arg::new("member_id")
-                .short('m')
+                .short('i')
                 .required(true)
                 .value_parser(value_parser!(u16))
                 .action(ArgAction::Set),
@@ -16,21 +16,30 @@ async fn main() -> Outcome<()> {
                 .action(ArgAction::Set),
         )
         .arg(
-            Arg::new("n_members")
-                .short('n')
+            Arg::new("members")
+                .short('m')
                 .required(true)
                 .value_parser(value_parser!(u16))
+                .num_args(1..)
+                .value_delimiter(' ')
                 .action(ArgAction::Set),
         )
         .get_matches();
 
     let member_id = *matches.get_one::<u16>("member_id").ifnone_()?;
     let threshold = *matches.get_one::<u16>("threshold").ifnone_()?;
-    let n_members = *matches.get_one::<u16>("n_members").ifnone_()?;
+    let members: HashSet<u16> = matches
+        .get_many::<u16>("members")
+        .ifnone_()? // iterator of `&u16`
+        .cloned()
+        .collect();
 
-    println!("member_id: {member_id}, threshold: {threshold}, n_members: {n_members}");
+    println!(
+        "member_id: {}, threshold: {}, members: {:?}",
+        member_id, threshold, &members
+    );
 
-    let keystore: KeyStore = algo_keygen(member_id, threshold, n_members, "demo_keygen")
+    let keystore: KeyStore = algo_keygen(member_id, threshold, &members, "demo_keygen")
         .await
         .catch_()?;
 
@@ -42,6 +51,8 @@ async fn main() -> Outcome<()> {
 
     Ok(())
 }
+
+use std::collections::HashSet;
 
 use clap::{value_parser, Arg, ArgAction, Command};
 use mpc_algo::{algo_keygen, KeyStore};

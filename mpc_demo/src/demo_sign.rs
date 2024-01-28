@@ -6,34 +6,32 @@ async fn main() -> Outcome<()> {
     let matches = Command::new("demo_keygen")
         .arg(
             Arg::new("signer_id")
+                .short('i')
+                .required(true)
+                .value_parser(value_parser!(u16))
+                .action(ArgAction::Set),
+        )
+        .arg(
+            Arg::new("signers")
                 .short('s')
                 .required(true)
                 .value_parser(value_parser!(u16))
-                .action(ArgAction::Set),
-        )
-        .arg(
-            Arg::new("n_signers")
-                .short('n')
-                .default_value("3")
-                .value_parser(value_parser!(u16))
-                .action(ArgAction::Set),
-        )
-        .arg(
-            Arg::new("member_id")
-                .short('m')
-                .required(true)
-                .value_parser(value_parser!(u16))
+                .num_args(1..)
+                .value_delimiter(' ')
                 .action(ArgAction::Set),
         )
         .get_matches();
 
     let signer_id = *matches.get_one::<u16>("signer_id").ifnone_()?;
-    let n_signers = *matches.get_one::<u16>("n_signers").ifnone_()?;
-    let member_id = *matches.get_one::<u16>("member_id").ifnone_()?;
-    println!("signer_id: {signer_id}, n_signers: {n_signers}, member_id: {member_id}");
+    let signers: HashSet<u16> = matches
+        .get_many::<u16>("signers")
+        .ifnone_()?
+        .cloned()
+        .collect();
+    println!("signer_id: {}, signers: {:?}", signer_id, &signers);
 
     let keystore: KeyStore = {
-        let path = &format!("assets/{}@demo_keygen.keystore", member_id);
+        let path = &format!("assets/{}@demo_keygen.keystore", signer_id);
         let mut file = File::open(path).await.catch_()?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).await.catch_()?;
@@ -46,7 +44,7 @@ async fn main() -> Outcome<()> {
         hasher.finalize().to_vec()
     };
 
-    let sig = algo_sign(signer_id, n_signers, "m/1/14/514", &msg_hash, &keystore)
+    let sig = algo_sign(&signers, "m/1/14/514", &msg_hash, &keystore)
         .await
         .catch_()?;
     '_print: {
@@ -60,6 +58,8 @@ async fn main() -> Outcome<()> {
 
     Ok(())
 }
+
+use std::collections::HashSet;
 
 use clap::{value_parser, Arg, ArgAction, Command};
 use mpc_algo::{algo_sign, KeyStore};
