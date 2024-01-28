@@ -43,7 +43,6 @@ pub async fn algo_keygen(
     let sigma = &party_key.k + &party_key.u_i * challenge;
 
     let dkg_commitment = KeyGenDKGProposedCommitment {
-        id: my_id,
         shares_commitment: shares_com,
         zkp: KeyGenZKP {
             g_k: party_key.g_k,
@@ -73,7 +72,7 @@ pub async fn algo_keygen(
     let mut aes_key_dict: HashMap<u16, [u8; 32]> = HashMap::new();
     for id in other_members.iter() {
         let com = valid_com_dict.get(id).ifnone_()?;
-        let aes_key = com.shares_commitment.commitment[0] * &party_key.u_i;
+        let aes_key = com[0] * &party_key.u_i;
         let aes_key = aes_key.compress().to_bytes();
         aes_key_dict.insert(*id, aes_key);
     }
@@ -83,7 +82,7 @@ pub async fn algo_keygen(
     topic = "aead_pack_i";
     for id in other_members.iter() {
         let aes_key = aes_key_dict.get(id).ifnone_()?;
-        let plaintext = shares.get(id).ifnone_()?.get_value().to_bytes();
+        let plaintext = shares.get(id).ifnone_()?.to_bytes();
         let aead_pack_i = aes_encrypt(aes_key, &plaintext).catch_()?;
         send(my_id, *id, topic, &aead_pack_i).await.catch_()?;
     }
@@ -104,7 +103,7 @@ pub async fn algo_keygen(
         assert_throw!(out.len() == 32);
         let mut out_arr = [0u8; 32];
         out_arr.copy_from_slice(&out);
-        let out_fe = Share::new_from(*id, my_id, Scalar::from_bytes_mod_order(out_arr));
+        let out_fe = Share(Scalar::from_bytes_mod_order(out_arr));
         party_shares.insert(*id, out_fe);
     }
 

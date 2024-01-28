@@ -32,16 +32,13 @@ pub async fn algo_sign(
     signing_key.x_i += &tweak_sk;
     signing_key.g_x_i += &constants::RISTRETTO_BASEPOINT_TABLE * &tweak_sk;
     let first_signer = signers.iter().min().ifnone_()?;
-    valid_com_dict
-        .get_mut(first_signer)
-        .ifnone_()?
-        .shares_commitment
-        .commitment[0] += &constants::RISTRETTO_BASEPOINT_TABLE * &tweak_sk;
+    valid_com_dict.get_mut(first_signer).ifnone_()?[0] +=
+        &constants::RISTRETTO_BASEPOINT_TABLE * &tweak_sk;
     println!("Finished non-hardened derivation");
     // #endregion
 
     // #region round 2: broadcast signing commitment pairs
-    let _obj: _ = KeyPair::sign_preprocess(1, my_id, &mut rng).catch_()?;
+    let _obj: _ = KeyPair::sign_preprocess(1, &mut rng).catch_()?;
     let signing_com_pair_i: Vec<SigningCommitmentPair> = _obj.0;
     let mut signing_nonce_pair_i: Vec<SigningNoncePair> = _obj.1;
 

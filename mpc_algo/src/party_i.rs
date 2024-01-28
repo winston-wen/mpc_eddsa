@@ -1,26 +1,61 @@
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SharesCommitment {
-    pub commitment: Vec<RistrettoPoint>,
+pub struct SharesCommitment(pub Vec<RistrettoPoint>);
+
+impl Deref for SharesCommitment {
+    type Target = Vec<RistrettoPoint>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SharesCommitment {
+    // type Target = Vec<RistrettoPoint>;
+    // DerefMut 继承 Deref, 所以已经有了 Target 成员
+
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KeyGenDKGProposedCommitment {
-    pub id: u16,
     pub shares_commitment: SharesCommitment,
     pub zkp: KeyGenZKP,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct KeyGenDKGCommitment {
-    pub id: u16,
-    pub shares_commitment: SharesCommitment,
+pub struct KeyGenDKGCommitment(pub SharesCommitment);
+
+impl Deref for KeyGenDKGCommitment {
+    type Target = SharesCommitment;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for KeyGenDKGCommitment {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Share {
-    creator_id: u16,
-    pub receiver_id: u16,
-    value: Scalar,
+pub struct Share(pub Scalar);
+
+impl Deref for Share {
+    type Target = Scalar;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Zeroize for Share {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -41,14 +76,18 @@ pub struct KeyPair {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SigningResponse {
-    pub response: Scalar,
-    pub id: u16,
+pub struct SigningResponse(pub Scalar);
+
+impl Deref for SigningResponse {
+    type Target = Scalar;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SigningCommitmentPair {
-    pub id: u16,
     g_d: RistrettoPoint,
     g_e: RistrettoPoint,
 }
@@ -80,7 +119,6 @@ pub struct Signature {
 
 impl Zeroize for KeyGenDKGProposedCommitment {
     fn zeroize(&mut self) {
-        self.id.zeroize();
         self.shares_commitment.zeroize();
         self.zkp.zeroize();
     }
@@ -88,7 +126,7 @@ impl Zeroize for KeyGenDKGProposedCommitment {
 
 impl Zeroize for SharesCommitment {
     fn zeroize(&mut self) {
-        self.commitment.iter_mut().for_each(Zeroize::zeroize);
+        self.iter_mut().for_each(Zeroize::zeroize);
     }
 }
 
@@ -96,14 +134,6 @@ impl Zeroize for KeyGenZKP {
     fn zeroize(&mut self) {
         self.g_k.zeroize();
         self.sigma.zeroize();
-    }
-}
-
-impl Zeroize for Share {
-    fn zeroize(&mut self) {
-        self.creator_id.zeroize();
-        self.receiver_id.zeroize();
-        self.value.zeroize();
     }
 }
 
@@ -117,37 +147,25 @@ impl KeyGenDKGProposedCommitment {
     }
 
     pub fn get_commitment_to_secret(&self) -> RistrettoPoint {
-        self.shares_commitment.commitment[0]
+        self.shares_commitment[0]
     }
 }
 
 impl Share {
-    pub fn new_from(generator_index: u16, receiver_index: u16, value: Scalar) -> Self {
-        Self {
-            creator_id: generator_index,
-            receiver_id: receiver_index,
-            value,
-        }
-    }
-
-    pub fn get_value(&self) -> Scalar {
-        self.value
-    }
-
     /// Verify that a share is consistent with a commitment.
-    fn verify_share(&self, com: &SharesCommitment) -> Outcome<()> {
-        let f_result = &constants::RISTRETTO_BASEPOINT_TABLE * &self.value;
+    fn verify_share(&self, member_id: u16, com: &SharesCommitment) -> Outcome<()> {
+        let f_result = &constants::RISTRETTO_BASEPOINT_TABLE * &self.0;
 
-        let term = Scalar::from(self.receiver_id);
+        let term = Scalar::from(member_id);
         let mut result = RistrettoPoint::identity();
 
         // Thanks to isis lovecruft for their simplification to Horner's method;
         // including it here for readability. Their implementation of FROST can
         // be found here: github.com/isislovecruft/frost-dalek
-        for (index, comm_i) in com.commitment.iter().rev().enumerate() {
-            result += comm_i;
+        for (k, com_k) in com.iter().rev().enumerate() {
+            result += com_k;
 
-            if index != com.commitment.len() - 1 {
+            if k != com.len() - 1 {
                 result *= term;
             }
         }
@@ -216,11 +234,7 @@ impl KeyInitial {
                 value = id * (value + c);
             }
             value += self.u_i;
-            let share = Share {
-                creator_id: self.id,
-                receiver_id: *i,
-                value,
-            };
+            let share = Share(value);
             shares.insert(*i, share);
         }
 
@@ -228,7 +242,7 @@ impl KeyInitial {
             c.zeroize();
         }
 
-        Ok((SharesCommitment { commitment }, shares))
+        Ok((SharesCommitment(commitment), shares))
     }
 
     /// keygen_receive_commitments_and_validate_peers gathers commitments from
@@ -253,10 +267,7 @@ impl KeyInitial {
                     .catch_()?;
 
             if com.is_valid_zkp(challenge).is_ok() {
-                let valid_com = KeyGenDKGCommitment {
-                    id: *id,
-                    shares_commitment: com.shares_commitment.clone(),
-                };
+                let valid_com = KeyGenDKGCommitment(com.shares_commitment.clone());
                 valid_coms.insert(*id, valid_com);
             } else {
                 invalid_ids.push(*id);
@@ -279,18 +290,18 @@ impl KeyInitial {
         // first, verify the integrity of the shares
         for (id, share) in party_shares.iter() {
             let com = share_coms.get(id).ifnone_()?;
-            share.verify_share(&com.shares_commitment).catch_()?;
+            share.verify_share(member_id, &com.0).catch_()?;
         }
 
         let mut x_i = Scalar::zero();
         for ps in party_shares.values() {
-            x_i += ps.value;
+            x_i += ps.0;
         }
         let g_x_i = &constants::RISTRETTO_BASEPOINT_TABLE * &x_i;
 
         let mut group_public = RistrettoPoint::identity();
         for com in share_coms.values() {
-            group_public += com.shares_commitment.commitment[0];
+            group_public += com.0[0];
         }
 
         Ok(KeyPair {
@@ -308,7 +319,6 @@ impl KeyPair {
     /// signing nonces are stored locally.
     pub fn sign_preprocess<R: RngCore + CryptoRng>(
         cached_com_count: usize,
-        signer_id: u16,
         rng: &mut R,
     ) -> Outcome<(Vec<SigningCommitmentPair>, Vec<SigningNoncePair>)> {
         let mut commitments = Vec::new();
@@ -317,8 +327,7 @@ impl KeyPair {
         for _ in 0..cached_com_count {
             let nonce_pair = SigningNoncePair::new(rng).catch_()?;
             let commitment =
-                SigningCommitmentPair::new(signer_id, nonce_pair.d.public, nonce_pair.e.public)
-                    .catch_()?;
+                SigningCommitmentPair::new(nonce_pair.d.public, nonce_pair.e.public).catch_()?;
             commitments.push(commitment);
             nonces.push(nonce_pair);
         }
@@ -358,9 +367,9 @@ impl KeyPair {
         let response: Scalar;
         {
             let mut bindings: HashMap<u16, Scalar> = HashMap::with_capacity(com_dict.len());
-            for (id, com) in com_dict {
+            for id in com_dict.keys() {
                 let rho_i = gen_rho_i(*id, msg, com_dict); // rho_l = H_1(l, m, B)
-                let _ = bindings.insert(com.id, rho_i); // (l, rho_l)
+                let _ = bindings.insert(*id, rho_i); // (l, rho_l)
             }
             let group_commitment = gen_group_commitment(com_dict, &bindings).catch_()?;
             let my_rho_i = bindings.get(&self.id).ifnone_()?;
@@ -380,10 +389,7 @@ impl KeyPair {
         // Now that this nonce has been used, delete it
         nonce_vec.remove(i_nonce);
 
-        Ok(SigningResponse {
-            response,    // z_i
-            id: self.id, // party id
-        })
+        Ok(SigningResponse(response /* z_i */))
     }
 
     /// aggregate collects all responses from participants. It first performs a
@@ -410,7 +416,7 @@ impl KeyPair {
         // Validate each participant's response
         for (id, resp) in resp_dict {
             let rho = bindings.get(id).ifnone_()?;
-            let lambda_i = get_lagrange_coeff(0, resp.id, &signers).catch_()?;
+            let lambda_i = get_lagrange_coeff(0, *id, &signers).catch_()?;
 
             let com = com_dict.get(id).ifnone_()?;
             let com = com.g_d + (com.g_e * rho);
@@ -422,7 +428,7 @@ impl KeyPair {
 
         let mut group_resp: Scalar = Scalar::zero();
         for resp in resp_dict.values() {
-            group_resp += resp.response;
+            group_resp += resp.0;
         }
 
         Ok(Signature {
@@ -441,17 +447,13 @@ impl SigningResponse {
         commitment: &RistrettoPoint,
         challenge: Scalar,
     ) -> bool {
-        (&constants::RISTRETTO_BASEPOINT_TABLE * &self.response)
+        (&constants::RISTRETTO_BASEPOINT_TABLE * &self.0)
             == (commitment + (pubkey * (challenge * lambda_i)))
     }
 }
 
 impl SigningCommitmentPair {
-    pub fn new(
-        id: u16,
-        g_d: RistrettoPoint,
-        g_e: RistrettoPoint,
-    ) -> Outcome<SigningCommitmentPair> {
+    pub fn new(g_d: RistrettoPoint, g_e: RistrettoPoint) -> Outcome<SigningCommitmentPair> {
         assert_throw!(
             g_d != RistrettoPoint::identity(),
             "Invalid signing commitment"
@@ -461,7 +463,7 @@ impl SigningCommitmentPair {
             "Invalid signing commitment"
         );
 
-        Ok(SigningCommitmentPair { g_d, g_e, id })
+        Ok(SigningCommitmentPair { g_d, g_e })
     }
 }
 
@@ -546,10 +548,10 @@ pub fn get_ith_pubkey(index: u16, com_dict: &HashMap<u16, KeyGenDKGCommitment>) 
     // iterate over each commitment
     for com in com_dict.values() {
         let mut part = RistrettoPoint::identity();
-        let t = com.shares_commitment.commitment.len() as u16;
+        let t = com.len() as u16;
 
         // iterate  over each element in the commitment
-        for (inner_index, comm_i) in com.shares_commitment.commitment.iter().rev().enumerate() {
+        for (inner_index, comm_i) in com.iter().rev().enumerate() {
             part += comm_i;
 
             // handle constant term
@@ -635,6 +637,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::ops::{Deref, DerefMut};
 use zeroize::Zeroize;
 
 use crate::prelude::*;
