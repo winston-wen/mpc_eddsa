@@ -1,8 +1,8 @@
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SharesCommitment(pub Vec<RistrettoPoint>);
+pub struct SharesCommitment(pub Vec<EdwardsPoint>);
 
 impl Deref for SharesCommitment {
-    type Target = Vec<RistrettoPoint>;
+    type Target = Vec<EdwardsPoint>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -10,7 +10,7 @@ impl Deref for SharesCommitment {
 }
 
 impl DerefMut for SharesCommitment {
-    // type Target = Vec<RistrettoPoint>;
+    // type Target = Vec<EdwardsPoint>;
     // DerefMut 继承 Deref, 所以已经有了 Target 成员
 
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -63,16 +63,16 @@ pub struct KeyInitial {
     pub id: u16,
     pub u_i: Scalar,
     pub k: Scalar,
-    pub g_u_i: RistrettoPoint,
-    pub g_k: RistrettoPoint,
+    pub g_u_i: EdwardsPoint,
+    pub g_k: EdwardsPoint,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct KeyPair {
     pub id: u16,
     pub x_i: Scalar,
-    pub g_x_i: RistrettoPoint,
-    pub group_public: RistrettoPoint,
+    pub g_x_i: EdwardsPoint,
+    pub group_public: EdwardsPoint,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -88,8 +88,8 @@ impl Deref for SigningResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SigningCommitmentPair {
-    g_d: RistrettoPoint,
-    g_e: RistrettoPoint,
+    g_d: EdwardsPoint,
+    g_e: EdwardsPoint,
 }
 
 #[derive(Copy, Clone)]
@@ -101,20 +101,20 @@ pub struct SigningNoncePair {
 #[derive(Copy, Clone)]
 pub struct Nonce {
     secret: Scalar,
-    pub public: RistrettoPoint,
+    pub public: EdwardsPoint,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KeyGenZKP {
-    pub g_k: RistrettoPoint, // KeyGen: g_k
-    pub sigma: Scalar,       // KeyGen: sigma
+    pub g_k: EdwardsPoint, // KeyGen: g_k
+    pub sigma: Scalar,     // KeyGen: sigma
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Signature {
-    pub r: RistrettoPoint, // Sign: R
-    pub z: Scalar,         // Sign: z
-    pub hash: Vec<u8>,     // Sign: hashed message
+    pub r: EdwardsPoint,
+    pub s: Scalar,
+    pub hash: Vec<u8>,
 }
 
 impl Zeroize for KeyGenDKGProposedCommitment {
@@ -140,13 +140,13 @@ impl Zeroize for KeyGenZKP {
 impl KeyGenDKGProposedCommitment {
     pub fn is_valid_zkp(&self, challenge: Scalar) -> Outcome<()> {
         let valid_zkp = self.zkp.g_k
-            == (&constants::RISTRETTO_BASEPOINT_TABLE * &self.zkp.sigma)
+            == (&constants::ED25519_BASEPOINT_TABLE * &self.zkp.sigma)
                 - (self.get_commitment_to_secret() * challenge);
         assert_throw!(valid_zkp);
         Ok(())
     }
 
-    pub fn get_commitment_to_secret(&self) -> RistrettoPoint {
+    pub fn get_commitment_to_secret(&self) -> EdwardsPoint {
         self.shares_commitment[0]
     }
 }
@@ -154,10 +154,10 @@ impl KeyGenDKGProposedCommitment {
 impl Share {
     /// Verify that a share is consistent with a commitment.
     fn verify_share(&self, member_id: u16, com: &SharesCommitment) -> Outcome<()> {
-        let f_result = &constants::RISTRETTO_BASEPOINT_TABLE * &self.0;
+        let f_result = &constants::ED25519_BASEPOINT_TABLE * &self.0;
 
         let term = Scalar::from(member_id);
-        let mut result = RistrettoPoint::identity();
+        let mut result = EdwardsPoint::identity();
 
         // Thanks to isis lovecruft for their simplification to Horner's method;
         // including it here for readability. Their implementation of FROST can
@@ -179,8 +179,8 @@ impl KeyInitial {
     pub fn new<R: RngCore + CryptoRng>(index: u16, rng: &mut R) -> Self {
         let u_i = Scalar::random(rng);
         let k = Scalar::random(rng);
-        let g_u_i = &constants::RISTRETTO_BASEPOINT_TABLE * &u_i;
-        let g_k = &constants::RISTRETTO_BASEPOINT_TABLE * &k;
+        let g_u_i = &constants::ED25519_BASEPOINT_TABLE * &u_i;
+        let g_k = &constants::ED25519_BASEPOINT_TABLE * &k;
         Self {
             id: index,
             u_i,
@@ -192,8 +192,8 @@ impl KeyInitial {
 
     pub fn create_from<R: RngCore + CryptoRng>(index: u16, rng: &mut R, u_i: Scalar) -> Self {
         let k = Scalar::random(rng);
-        let g_u_i = &constants::RISTRETTO_BASEPOINT_TABLE * &u_i;
-        let g_k = &constants::RISTRETTO_BASEPOINT_TABLE * &k;
+        let g_u_i = &constants::ED25519_BASEPOINT_TABLE * &u_i;
+        let g_k = &constants::ED25519_BASEPOINT_TABLE * &k;
         Self {
             id: index,
             u_i,
@@ -221,9 +221,9 @@ impl KeyInitial {
             coefficients.push(Scalar::random(rng));
         }
 
-        let mut commitment: Vec<RistrettoPoint> = vec![self.g_u_i];
+        let mut commitment: Vec<EdwardsPoint> = vec![self.g_u_i];
         for c in coefficients.iter() {
-            commitment.push(&constants::RISTRETTO_BASEPOINT_TABLE * &c);
+            commitment.push(&constants::ED25519_BASEPOINT_TABLE * &c);
         }
 
         let mut shares: HashMap<u16, Share> = HashMap::new();
@@ -297,9 +297,9 @@ impl KeyInitial {
         for ps in party_shares.values() {
             x_i += ps.0;
         }
-        let g_x_i = &constants::RISTRETTO_BASEPOINT_TABLE * &x_i;
+        let g_x_i = &constants::ED25519_BASEPOINT_TABLE * &x_i;
 
-        let mut group_public = RistrettoPoint::identity();
+        let mut group_public = EdwardsPoint::identity();
         for com in share_coms.values() {
             group_public += com.0[0];
         }
@@ -401,15 +401,14 @@ impl KeyPair {
         msg: &[u8],
         com_dict: &HashMap<u16, SigningCommitmentPair>,
         resp_dict: &HashMap<u16, SigningResponse>,
-        pubkey_dict: &HashMap<u16, RistrettoPoint>,
+        pubkey_dict: &HashMap<u16, EdwardsPoint>,
     ) -> Outcome<Signature> {
         let mut bindings: HashMap<u16, Scalar> = HashMap::new(); // rho-s
         for id in com_dict.keys() {
             let rho_i = gen_rho_i(*id, msg, com_dict);
             bindings.insert(*id, rho_i);
         }
-        let group_commitment: RistrettoPoint =
-            gen_group_commitment(&com_dict, &bindings).catch_()?;
+        let group_commitment: EdwardsPoint = gen_group_commitment(&com_dict, &bindings).catch_()?;
         let challenge: Scalar = generate_challenge(msg, group_commitment);
         let signers: Vec<u16> = com_dict.keys().cloned().collect();
 
@@ -433,7 +432,7 @@ impl KeyPair {
 
         Ok(Signature {
             r: group_commitment,
-            z: group_resp,
+            s: group_resp,
             hash: msg.to_vec(),
         })
     }
@@ -442,24 +441,24 @@ impl KeyPair {
 impl SigningResponse {
     pub fn is_valid(
         &self,
-        pubkey: &RistrettoPoint,
+        pubkey: &EdwardsPoint,
         lambda_i: Scalar,
-        commitment: &RistrettoPoint,
+        commitment: &EdwardsPoint,
         challenge: Scalar,
     ) -> bool {
-        (&constants::RISTRETTO_BASEPOINT_TABLE * &self.0)
+        (&constants::ED25519_BASEPOINT_TABLE * &self.0)
             == (commitment + (pubkey * (challenge * lambda_i)))
     }
 }
 
 impl SigningCommitmentPair {
-    pub fn new(g_d: RistrettoPoint, g_e: RistrettoPoint) -> Outcome<SigningCommitmentPair> {
+    pub fn new(g_d: EdwardsPoint, g_e: EdwardsPoint) -> Outcome<SigningCommitmentPair> {
         assert_throw!(
-            g_d != RistrettoPoint::identity(),
+            g_d != EdwardsPoint::identity(),
             "Invalid signing commitment"
         );
         assert_throw!(
-            g_e != RistrettoPoint::identity(),
+            g_e != EdwardsPoint::identity(),
             "Invalid signing commitment"
         );
 
@@ -471,16 +470,16 @@ impl SigningNoncePair {
     pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Outcome<SigningNoncePair> {
         let (d, e) = (Scalar::random(rng), Scalar::random(rng));
         let (d_pub, e_pub) = (
-            &constants::RISTRETTO_BASEPOINT_TABLE * &d,
-            &constants::RISTRETTO_BASEPOINT_TABLE * &e,
+            &constants::ED25519_BASEPOINT_TABLE * &d,
+            &constants::ED25519_BASEPOINT_TABLE * &e,
         );
 
         assert_throw!(
-            d_pub != RistrettoPoint::identity(),
+            d_pub != EdwardsPoint::identity(),
             "Invalid nonce commitment"
         );
         assert_throw!(
-            e_pub != RistrettoPoint::identity(),
+            e_pub != EdwardsPoint::identity(),
             "Invalid nonce commitment"
         );
 
@@ -500,8 +499,8 @@ impl SigningNoncePair {
 pub fn generate_dkg_challenge(
     index: u16,
     context: &str,
-    public: &RistrettoPoint,
-    commitment: &RistrettoPoint,
+    public: &EdwardsPoint,
+    commitment: &EdwardsPoint,
 ) -> Outcome<Scalar> {
     let mut hasher = Sha256::new();
     // the order of the below may change to allow for EdDSA verification compatibility
@@ -541,13 +540,13 @@ pub fn get_lagrange_coeff(x_coord: u16, signer_id: u16, signers: &[u16]) -> Outc
 }
 
 // get g_x_i locally
-pub fn get_ith_pubkey(index: u16, com_dict: &HashMap<u16, KeyGenDKGCommitment>) -> RistrettoPoint {
-    let mut ith_pubkey = RistrettoPoint::identity();
+pub fn get_ith_pubkey(index: u16, com_dict: &HashMap<u16, KeyGenDKGCommitment>) -> EdwardsPoint {
+    let mut ith_pubkey = EdwardsPoint::identity();
     let term = Scalar::from(index);
 
     // iterate over each commitment
     for com in com_dict.values() {
-        let mut part = RistrettoPoint::identity();
+        let mut part = EdwardsPoint::identity();
         let t = com.len() as u16;
 
         // iterate  over each element in the commitment
@@ -569,10 +568,9 @@ pub fn get_ith_pubkey(index: u16, com_dict: &HashMap<u16, KeyGenDKGCommitment>) 
 /// validate performs a plain Schnorr validation operation; this is identical
 /// to performing validation of a Schnorr signature that has been signed by a
 /// single party.
-// pub fn validate(msg: &str, sig: &Signature, pubkey: RistrettoPoint) -> Outcome<()> {
-pub fn validate(sig: &Signature, pubkey: &RistrettoPoint) -> Outcome<()> {
+pub fn validate(sig: &Signature, pubkey: &EdwardsPoint) -> Outcome<()> {
     let challenge = generate_challenge(&sig.hash, sig.r);
-    let sig_valid = sig.r == (&constants::RISTRETTO_BASEPOINT_TABLE * &sig.z) - pubkey * challenge;
+    let sig_valid = sig.r == (&constants::ED25519_BASEPOINT_TABLE * &sig.s) - pubkey * challenge;
     assert_throw!(sig_valid, "Signature is invalid");
 
     Ok(())
@@ -583,7 +581,7 @@ pub fn validate(sig: &Signature, pubkey: &RistrettoPoint) -> Outcome<()> {
 /// ed25519_ph hashes the message first, and derives the challenge as H(H(m), R),
 /// this would be a better optimization but incompatibility with other
 /// implementations may be undesirable.
-pub fn generate_challenge(msg: &[u8], group_commitment: RistrettoPoint) -> Scalar {
+pub fn generate_challenge(msg: &[u8], group_commitment: EdwardsPoint) -> Scalar {
     let mut hasher = Sha256::new();
     hasher.update(group_commitment.compress().to_bytes());
     hasher.update(msg);
@@ -620,8 +618,8 @@ fn gen_rho_i(index: u16, msg: &[u8], com_dict: &HashMap<u16, SigningCommitmentPa
 fn gen_group_commitment(
     com_dict: &HashMap<u16, SigningCommitmentPair>,
     bindings: &HashMap<u16, Scalar>,
-) -> Outcome<RistrettoPoint> {
-    let mut group_com = RistrettoPoint::identity();
+) -> Outcome<EdwardsPoint> {
+    let mut group_com = EdwardsPoint::identity();
     for (id, com) in com_dict {
         let rho_i = bindings.get(id).ifnone_()?;
         group_com += com.g_d + (com.g_e * rho_i)
@@ -630,7 +628,7 @@ fn gen_group_commitment(
     Ok(group_com)
 }
 
-use curve25519_dalek::{constants, ristretto::RistrettoPoint, scalar::Scalar, traits::Identity};
+use curve25519_dalek::{constants, edwards::EdwardsPoint, scalar::Scalar, traits::Identity};
 use itertools::Itertools;
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};

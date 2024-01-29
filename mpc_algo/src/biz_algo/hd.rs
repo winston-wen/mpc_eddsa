@@ -1,10 +1,10 @@
 pub fn non_hardened_derive(
     drv_path: &str,
-    parent_pk: &RistrettoPoint,
+    parent_pk: &EdwardsPoint,
     chain_code: &ChainCode,
 ) -> Outcome<(
     /* tweak_sk: */ Scalar,
-    /* child_pk: */ RistrettoPoint,
+    /* child_pk: */ EdwardsPoint,
 )> {
     let HDE = "NonHardenedDerivationException";
     let path = DerivationPath::from_str(drv_path).catch(
@@ -24,7 +24,7 @@ pub fn non_hardened_derive(
         },
         key_bytes: par_pk_bytes.try_into().unwrap(),
     };
-    let mut pk = XPub::try_from(ex_pk.clone()).catch(
+    let mut pk: ExtendedPublicKey<EdwardsPoint> = XPub::try_from(ex_pk.clone()).catch(
         HDE,
         &format!("Cannot create XPub from ex_pk_b58={}", &ex_pk.to_string()),
     )?;
@@ -84,19 +84,19 @@ pub fn non_hardened_derive(
     }
 
     let tweak_sk: Scalar = Scalar::from_bytes_mod_order(total_tweak.to_bytes()) - Scalar::one();
-    let child_pk: RistrettoPoint = CompressedRistretto::from_slice(&pk.public_key().to_bytes())
+    let child_pk: EdwardsPoint = CompressedEdwardsY::from_slice(&pk.public_key().to_bytes())
         .decompress()
-        .ifnone(HDE, "Public key is not compressed Ristretto point")?;
+        .ifnone(HDE, "Public key is not compressed Edwards point")?;
 
     Ok((tweak_sk, child_pk))
 }
 
 use bip32::{
-    ChainCode, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, Prefix, PrivateKey,
-    PublicKey, XPrv, XPub, KEY_SIZE,
+    ChainCode, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, ExtendedPublicKey,
+    Prefix, PrivateKey, PublicKey, XPrv, XPub, KEY_SIZE,
 };
 use curve25519_dalek::{
-    ristretto::{CompressedRistretto, RistrettoPoint},
+    edwards::{CompressedEdwardsY, EdwardsPoint},
     scalar::Scalar,
 };
 use hmac::{Hmac, Mac, NewMac};

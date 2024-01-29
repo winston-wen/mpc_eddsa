@@ -1,16 +1,14 @@
 //! Trait for deriving child keys on a given type.
 
 use crate::{KeyFingerprint, PrivateKeyBytes, Result, KEY_SIZE};
+use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 
 #[cfg(feature = "ed25519")]
 use {
     crate::{Error, XPub},
-    curve25519_dalek::{
-        constants,
-        ristretto::{CompressedRistretto, RistrettoPoint},
-    },
+    curve25519_dalek::constants,
 };
 
 /// Bytes which represent a public key.
@@ -40,11 +38,11 @@ pub trait PublicKey: Sized {
 }
 
 #[cfg(feature = "ed25519")]
-impl PublicKey for RistrettoPoint {
+impl PublicKey for EdwardsPoint {
     fn from_bytes(bytes: PublicKeyBytes) -> Result<Self> {
         let mut tmp = [0u8; 32];
         tmp.copy_from_slice(&bytes);
-        let pk = CompressedRistretto(tmp);
+        let pk = CompressedEdwardsY(tmp);
         Option::from(pk.decompress()).ok_or(Error::Decode)
     }
 
@@ -54,14 +52,14 @@ impl PublicKey for RistrettoPoint {
 
     fn derive_child(&self, other: PrivateKeyBytes) -> Self {
         let child_scalar = curve25519_dalek::scalar::Scalar::from_bytes_mod_order(other.into());
-        let child_point = self + &constants::RISTRETTO_BASEPOINT_TABLE * &child_scalar;
+        let child_point = self + &constants::ED25519_BASEPOINT_TABLE * &child_scalar;
         child_point
     }
 }
 
 #[cfg(feature = "ed25519")]
-impl From<&XPub> for RistrettoPoint {
-    fn from(xpub: &XPub) -> RistrettoPoint {
+impl From<&XPub> for EdwardsPoint {
+    fn from(xpub: &XPub) -> EdwardsPoint {
         *xpub.public_key()
     }
 }

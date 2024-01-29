@@ -10,6 +10,7 @@ pub async fn algo_sign(
         "msg_hash is too long to be pre-hashed!"
     );
     assert_throw!(signers.contains(&keystore.member_id));
+    // let drv_path = "";
     let mut topic: &str;
 
     let mut signing_key = keystore.signing_key.clone();
@@ -30,10 +31,10 @@ pub async fn algo_sign(
     };
     signing_key.group_public = child_pk;
     signing_key.x_i += &tweak_sk;
-    signing_key.g_x_i += &constants::RISTRETTO_BASEPOINT_TABLE * &tweak_sk;
+    signing_key.g_x_i += &constants::ED25519_BASEPOINT_TABLE * &tweak_sk;
     let first_signer = signers.iter().min().ifnone_()?;
     valid_com_dict.get_mut(first_signer).ifnone_()?[0] +=
-        &constants::RISTRETTO_BASEPOINT_TABLE * &tweak_sk;
+        &constants::ED25519_BASEPOINT_TABLE * &tweak_sk;
     println!("Finished non-hardened derivation");
     // #endregion
 
@@ -62,7 +63,7 @@ pub async fn algo_sign(
     // #endregion
 
     // #region: combine signature shares and verify
-    let mut signer_pubkeys: HashMap<u16, RistrettoPoint> = HashMap::with_capacity(signers.len());
+    let mut signer_pubkeys: HashMap<u16, EdwardsPoint> = HashMap::with_capacity(signers.len());
     for id in signers.iter() {
         let ith_pk = get_ith_pubkey(*id, &valid_com_dict);
         signer_pubkeys.insert(*id, ith_pk);
@@ -80,19 +81,18 @@ pub async fn algo_sign(
     Ok(group_sig)
 }
 
-pub fn verify_solana(sig: &Signature, pk: &RistrettoPoint) -> Outcome<()> {
+pub fn verify_solana(sig: &Signature, pk: &EdwardsPoint) -> Outcome<()> {
     let msg = &sig.hash;
     let pk = {
-        let pk_bytes = pk.to_bytes();
+        let pk_bytes = pk.compress().to_bytes();
         let pk = ed25519_dalek::PublicKey::from_bytes(&pk_bytes).catch_()?;
         pk
     };
     let sig = {
         use ed25519_dalek::Signature as LibSignature;
-        let r: EdwardsPoint = unsafe { transmute(sig.r) };
         let mut sig_bytes = [0u8; 64];
-        sig_bytes[..32].copy_from_slice(&r.compress().to_bytes());
-        sig_bytes[32..].copy_from_slice(&sig.z.to_bytes());
+        sig_bytes[..32].copy_from_slice(&sig.r.compress().to_bytes());
+        sig_bytes[32..].copy_from_slice(&sig.s.to_bytes());
         let sig = LibSignature::from_bytes(&sig_bytes).catch_()?;
         sig
     };
@@ -101,14 +101,14 @@ pub fn verify_solana(sig: &Signature, pk: &RistrettoPoint) -> Outcome<()> {
     Ok(())
 }
 
-use bip32::{ChainCode, PublicKey};
+use bip32::ChainCode;
 use curve25519_dalek::edwards::EdwardsPoint;
-use curve25519_dalek::{constants, ristretto::RistrettoPoint, scalar::Scalar};
+use curve25519_dalek::{constants, scalar::Scalar};
+use ed25519_dalek::PublicKey;
 use mpc_sesman::{gather, scatter};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha512};
 use std::collections::{HashMap, HashSet};
-use std::mem::transmute;
 
 use super::{hd::non_hardened_derive, keygen::KeyStore};
 use crate::party_i::{

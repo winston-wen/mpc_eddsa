@@ -49,7 +49,7 @@ async fn main() -> Outcome<()> {
         .catch_()?;
     '_print: {
         let sig_r = hex::encode(&sig.r.compress().as_bytes());
-        let sig_s = hex::encode(&sig.z.as_bytes());
+        let sig_s = hex::encode(&sig.s.as_bytes());
         let tx_hash = hex::encode(&sig.hash);
         println!("sig_r: {}", sig_r);
         println!("sig_s: {}", sig_s);

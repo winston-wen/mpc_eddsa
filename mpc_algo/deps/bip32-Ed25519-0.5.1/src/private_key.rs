@@ -1,7 +1,7 @@
 //! Trait for deriving child keys on a given type.
 
 use crate::{PublicKey, KEY_SIZE};
-use curve25519_dalek::{constants, ristretto::RistrettoPoint, scalar::Scalar};
+use curve25519_dalek::{constants, edwards::EdwardsPoint, scalar::Scalar};
 
 #[cfg(feature = "ed25519")]
 use crate::XPrv;
@@ -31,7 +31,7 @@ pub trait PrivateKey: Sized {
 
 #[cfg(feature = "ed25519")]
 impl PrivateKey for Scalar {
-    type PublicKey = RistrettoPoint;
+    type PublicKey = EdwardsPoint;
 
     fn from_bytes(bytes: &PrivateKeyBytes) -> Self {
         Scalar::from_bytes_mod_order((*bytes).into())
@@ -48,7 +48,7 @@ impl PrivateKey for Scalar {
     }
 
     fn public_key(&self) -> Self::PublicKey {
-        &constants::RISTRETTO_BASEPOINT_TABLE * self
+        &constants::ED25519_BASEPOINT_TABLE * self
     }
 }
 

@@ -5,6 +5,7 @@ use crate::{
     KeyFingerprint, Prefix, PrivateKey, PublicKey, PublicKeyBytes, Result, KEY_SIZE,
 };
 use core::str::FromStr;
+use curve25519_dalek::edwards::EdwardsPoint;
 use hmac::Mac;
 
 #[cfg(feature = "alloc")]
@@ -12,7 +13,7 @@ use alloc::string::{String, ToString};
 
 /// Extended public curve25519 EdDSA verification key.
 #[cfg(feature = "ed25519")]
-pub type XPub = ExtendedPublicKey<curve25519_dalek::ristretto::RistrettoPoint>;
+pub type XPub = ExtendedPublicKey<EdwardsPoint>;
 
 /// Extended public keys derived using BIP32.
 ///
