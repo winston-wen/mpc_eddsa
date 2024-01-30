@@ -1,8 +1,11 @@
 [workspace]
 resolver = "2"
-
 members = [
     "mpc_algo",
     "mpc_demo",
     "mpc_sesman", # sesman = session manager
+    "patches/ed25519-dalek-1.0.1"
 ]
+
+[patch.crates-io]
+ed25519-dalek = { version = "1.0.1", path = "patches/ed25519-dalek-1.0.1" }

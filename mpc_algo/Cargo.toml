@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 aes-gcm = { version = "0.9", features = ["std"] }
+bs58 = "0.5"
 curve25519-dalek = { version = "3", features = ["serde"] }
 ed25519-dalek = "1" # ver.2 (latest at 2024.01.18) has no struct PublicKey
 hex = "0.4"
@@ -20,7 +21,7 @@ uuid = { version = "0.8", features = ["v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [dependencies.bip32]
-path = "deps/bip32-Ed25519-0.5.1"
+path = "../patches/bip32-Ed25519-0.5.1"
 
 [dependencies.mpc_sesman]
 path = "../mpc_sesman"

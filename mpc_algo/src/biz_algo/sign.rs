@@ -74,7 +74,7 @@ pub async fn algo_sign(
 
     validate(&group_sig, &signing_key.group_public)
         .catch("InvalidSignature", "Most probably lack of signers")?;
-    // verify_solana(&group_sig, &child_pk).catch("", "Failed at verify_solana()")?;
+    verify_solana(&group_sig, &child_pk).catch("", "Failed at verify_solana()")?;
     println!("Finished aggregating signature shares");
     // #endregion
 
@@ -82,6 +82,11 @@ pub async fn algo_sign(
 }
 
 pub fn verify_solana(sig: &Signature, pk: &EdwardsPoint) -> Outcome<()> {
+    if true {
+        let sig_r = sig.r.compress().to_bytes();
+        let sig_r = bs58::encode(sig_r).into_string();
+        println!("before verify_strict(), sig_r: {}", sig_r);
+    }
     let msg = &sig.hash;
     let pk = {
         let pk_bytes = pk.compress().to_bytes();
@@ -104,7 +109,6 @@ pub fn verify_solana(sig: &Signature, pk: &EdwardsPoint) -> Outcome<()> {
 use bip32::ChainCode;
 use curve25519_dalek::edwards::EdwardsPoint;
 use curve25519_dalek::{constants, scalar::Scalar};
-use ed25519_dalek::PublicKey;
 use mpc_sesman::{gather, scatter};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha512};

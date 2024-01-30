@@ -570,9 +570,17 @@ pub fn get_ith_pubkey(index: u16, com_dict: &HashMap<u16, KeyGenDKGCommitment>) 
 /// single party.
 pub fn validate(sig: &Signature, pubkey: &EdwardsPoint) -> Outcome<()> {
     let challenge = generate_challenge(&sig.hash, sig.r);
-    let sig_valid = sig.r == (&constants::ED25519_BASEPOINT_TABLE * &sig.s) - pubkey * challenge;
-    assert_throw!(sig_valid, "Signature is invalid");
+    let r = &constants::ED25519_BASEPOINT_TABLE * &sig.s - pubkey * challenge;
+    if true {
+        let r = r.compress().to_bytes();
+        let r = bs58::encode(r).into_string();
+        println!("before verify_solana(), r: {}", r);
 
+        let s = sig.s.to_bytes();
+        let s = bs58::encode(s).into_string();
+        println!("before verify_solana(), sig_s: {}", s);
+    }
+    assert_throw!(r == sig.r, "Signature is invalid");
     Ok(())
 }
 
