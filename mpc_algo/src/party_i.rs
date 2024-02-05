@@ -343,6 +343,7 @@ impl KeyPair {
         &self,
         com_dict: &HashMap<u16, SigningCommitmentPair>, // B, but how to construct B???
         nonce_vec: &mut Vec<SigningNoncePair>,          // .len() == cached_com_count
+        pubkey: &EdwardsPoint,
         msg: &[u8],
     ) -> Outcome<SigningResponse> {
         // no message checking???
@@ -371,7 +372,7 @@ impl KeyPair {
                 let rho_i = gen_rho_i(*id, msg, com_dict); // rho_l = H_1(l, m, B)
                 let _ = bindings.insert(*id, rho_i); // (l, rho_l)
             }
-            let group_commitment = gen_group_commitment(com_dict, &bindings).catch_()?;
+            let com_agg = gen_group_commitment(com_dict, &bindings).catch_()?;
             let my_rho_i = bindings.get(&self.id).ifnone_()?;
             let signers: Vec<u16> = com_dict.keys().cloned().collect();
 
@@ -379,7 +380,7 @@ impl KeyPair {
             let lambda_i = get_lagrange_coeff(0, self.id, &signers).catch_()?;
 
             // c= H_2(R, Y, m)
-            let c = generate_challenge(msg, group_commitment);
+            let c = generate_challenge(msg, &com_agg, pubkey);
 
             // z_i = d_i + (e_i * rho_i) + lambda_i * s_i * c
             response =
@@ -399,6 +400,7 @@ impl KeyPair {
     /// by the entity performing the signature aggregator role.
     pub fn sign_aggregate_responses(
         msg: &[u8],
+        pubkey: &EdwardsPoint,
         com_dict: &HashMap<u16, SigningCommitmentPair>,
         resp_dict: &HashMap<u16, SigningResponse>,
         pubkey_dict: &HashMap<u16, EdwardsPoint>,
@@ -409,7 +411,7 @@ impl KeyPair {
             bindings.insert(*id, rho_i);
         }
         let group_commitment: EdwardsPoint = gen_group_commitment(&com_dict, &bindings).catch_()?;
-        let challenge: Scalar = generate_challenge(msg, group_commitment);
+        let challenge: Scalar = generate_challenge(msg, &group_commitment, pubkey);
         let signers: Vec<u16> = com_dict.keys().cloned().collect();
 
         // Validate each participant's response
@@ -569,7 +571,7 @@ pub fn get_ith_pubkey(index: u16, com_dict: &HashMap<u16, KeyGenDKGCommitment>) 
 /// to performing validation of a Schnorr signature that has been signed by a
 /// single party.
 pub fn validate(sig: &Signature, pubkey: &EdwardsPoint) -> Outcome<()> {
-    let challenge = generate_challenge(&sig.hash, sig.r);
+    let challenge = generate_challenge(&sig.hash, &sig.r, &pubkey);
     let r = &constants::ED25519_BASEPOINT_TABLE * &sig.s - pubkey * challenge;
     if true {
         let r = r.compress().to_bytes();
@@ -589,17 +591,12 @@ pub fn validate(sig: &Signature, pubkey: &EdwardsPoint) -> Outcome<()> {
 /// ed25519_ph hashes the message first, and derives the challenge as H(H(m), R),
 /// this would be a better optimization but incompatibility with other
 /// implementations may be undesirable.
-pub fn generate_challenge(msg: &[u8], group_commitment: EdwardsPoint) -> Scalar {
-    let mut hasher = Sha256::new();
-    hasher.update(group_commitment.compress().to_bytes());
-    hasher.update(msg);
-    let result = hasher.finalize();
-
-    let x = result
-        .as_slice()
-        .try_into()
-        .expect("Error generating commitment!");
-    Scalar::from_bytes_mod_order(x)
+pub fn generate_challenge(msg: &[u8], com: &EdwardsPoint, pk: &EdwardsPoint) -> Scalar {
+    let mut ha = Sha512::new();
+    ha.update(com.compress().to_bytes());
+    ha.update(pk.compress().to_bytes());
+    ha.update(msg);
+    Scalar::from_hash(ha)
 }
 
 fn gen_rho_i(index: u16, msg: &[u8], com_dict: &HashMap<u16, SigningCommitmentPair>) -> Scalar {
@@ -640,7 +637,7 @@ use curve25519_dalek::{constants, edwards::EdwardsPoint, scalar::Scalar, traits:
 use itertools::Itertools;
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::ops::{Deref, DerefMut};

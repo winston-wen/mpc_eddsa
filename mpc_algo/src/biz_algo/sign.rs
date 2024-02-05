@@ -10,7 +10,6 @@ pub async fn algo_sign(
         "msg_hash is too long to be pre-hashed!"
     );
     assert_throw!(signers.contains(&keystore.member_id));
-    // let drv_path = "";
     let mut topic: &str;
 
     let mut signing_key = keystore.signing_key.clone();
@@ -53,7 +52,12 @@ pub async fn algo_sign(
 
     // #region round 3: broadcast signing response
     let response_i: SigningResponse = signing_key
-        .sign_and_respond(&com_pair_dict, &mut signing_nonce_pair_i, msg_hash)
+        .sign_and_respond(
+            &com_pair_dict,
+            &mut signing_nonce_pair_i,
+            &child_pk,
+            msg_hash,
+        )
         .catch_()?;
 
     topic = "response_i";
@@ -68,12 +72,16 @@ pub async fn algo_sign(
         let ith_pk = get_ith_pubkey(*id, &valid_com_dict);
         signer_pubkeys.insert(*id, ith_pk);
     }
-    let group_sig: Signature =
-        KeyPair::sign_aggregate_responses(msg_hash, &com_pair_dict, &resp_dict, &signer_pubkeys)
-            .catch("", "Failed to aggregate signature shares")?;
+    let group_sig: Signature = KeyPair::sign_aggregate_responses(
+        msg_hash,
+        &child_pk,
+        &com_pair_dict,
+        &resp_dict,
+        &signer_pubkeys,
+    )
+    .catch("", "Failed to aggregate signature shares")?;
 
-    validate(&group_sig, &signing_key.group_public)
-        .catch("InvalidSignature", "Most probably lack of signers")?;
+    validate(&group_sig, &child_pk).catch("InvalidSignature", "Most probably lack of signers")?;
     verify_solana(&group_sig, &child_pk).catch("", "Failed at verify_solana()")?;
     println!("Finished aggregating signature shares");
     // #endregion

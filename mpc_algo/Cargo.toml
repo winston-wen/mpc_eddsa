@@ -21,7 +21,7 @@ uuid = { version = "0.8", features = ["v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [dependencies.bip32]
-path = "../patches/bip32-Ed25519-0.5.1"
+path = "deps/bip32-Ed25519-0.5.1"
 
 [dependencies.mpc_sesman]
 path = "../mpc_sesman"
