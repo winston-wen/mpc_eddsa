@@ -1,3 +1,17 @@
+use std::{convert::TryInto, str::FromStr};
+
+use bip32::{
+    ChainCode, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, ExtendedPublicKey,
+    Prefix, PrivateKey, PublicKey, XPrv, XPub, KEY_SIZE,
+};
+use curve25519_dalek::{
+    edwards::{CompressedEdwardsY, EdwardsPoint},
+    scalar::Scalar,
+};
+use hmac::{Hmac, Mac, NewMac};
+use libexception::*;
+use sha2::{Digest, Sha512};
+
 pub fn non_hardened_derive(
     drv_path: &str,
     parent_pk: &EdwardsPoint,
@@ -91,16 +105,12 @@ pub fn non_hardened_derive(
     Ok((tweak_sk, child_pk))
 }
 
-use bip32::{
-    ChainCode, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, ExtendedPublicKey,
-    Prefix, PrivateKey, PublicKey, XPrv, XPub, KEY_SIZE,
-};
-use curve25519_dalek::{
-    edwards::{CompressedEdwardsY, EdwardsPoint},
-    scalar::Scalar,
-};
-use hmac::{Hmac, Mac, NewMac};
-use sha2::Sha512;
-use std::{convert::TryInto, str::FromStr};
-
-use crate::prelude::*;
+pub fn eval_chain_code(pk: &EdwardsPoint) -> ChainCode {
+    let pk_bytes_short = pk.compress().to_bytes();
+    let chain_code: ChainCode = Sha512::digest(&pk_bytes_short)
+        .get(..32)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    chain_code
+}

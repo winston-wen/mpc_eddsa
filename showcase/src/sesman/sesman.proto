@@ -1,0 +1,16 @@
+syntax = "proto3";
+package sesman;
+
+service Sesman {
+    rpc Inbox(Message) returns (Void);
+    rpc Outbox(Message) returns (Message);
+}
+
+message Message {
+    string topic = 1;
+    uint32 src = 2;
+    uint32 dst = 3;
+    optional bytes obj = 4;
+}
+
+message Void {}

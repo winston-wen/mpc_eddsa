@@ -17,17 +17,17 @@ rust-version = "1.65"
 
 [dependencies]
 bs58 = { version = "0.5", default-features = false, features = ["check"] }
+curve25519-dalek = { version = "3", optional = true, features = ["serde"] }
 hmac = { version = "0.12", default-features = false }
+
+# optional dependencies
+once_cell = { version = "1", optional = true }
+pbkdf2 = { version = "0.12", optional = true, default-features = false, features = ["hmac"] }
 rand_core = { version = "0.6", default-features = false }
 ripemd = { version = "0.1", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 subtle = { version = "2", default-features = false }
 zeroize = { version = "1", default-features = false }
-
-# optional dependencies
-once_cell = { version = "1", optional = true }
-pbkdf2 = { version = "0.12", optional = true, default-features = false, features = ["hmac"] }
-curve25519-dalek = { version = "3", optional = true, features = ["serde"] }
 
 [dev-dependencies]
 hex-literal = "0.4"

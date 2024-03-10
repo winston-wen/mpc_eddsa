@@ -1,3 +1,5 @@
+use libexception::*;
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct AEAD {
     pub ciphertext: Vec<u8>,
@@ -62,5 +64,3 @@ use aes_gcm::{
 };
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-
-use crate::prelude::*;

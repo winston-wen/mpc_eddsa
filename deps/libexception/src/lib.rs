@@ -1,3 +1,10 @@
+/// in lib.rs or main.rs,
+/// use exception::exception_prelude::*;
+pub mod prelude {
+    pub use crate::{assert_throw, throw};
+    pub use crate::{Outcome, TraitStdOptionToOutcome, TraitStdResultToOutcome};
+}
+
 use std::{fmt, result::Result as StdResult};
 
 pub struct Exception {
@@ -190,7 +197,7 @@ where
 #[macro_export]
 macro_rules! exception {
     ($name:expr, $ctx:expr) => {{
-        let mut ex = Exception::new();
+        let mut ex = ::libexception::Exception::new();
         let loc = std::panic::Location::caller();
         ex.set_name($name)
             .set_file(loc.file())
@@ -204,8 +211,7 @@ macro_rules! exception {
 #[macro_export]
 macro_rules! throw {
     ($name:expr, $ctx:expr) => {{
-        use crate::exception::Exception;
-        let mut ex = Exception::new();
+        let mut ex = $crate::Exception::new();
         let loc = std::panic::Location::caller();
         ex.set_name($name)
             .set_file(loc.file())
@@ -220,8 +226,7 @@ macro_rules! throw {
 macro_rules! assert_throw {
     ($cond:expr, $name:expr, $ctx:expr) => {
         if !($cond) {
-            use crate::exception::Exception;
-            let mut ex = Exception::new();
+            let mut ex = $crate::Exception::new();
             let loc = std::panic::Location::caller();
             let ctx = format!("Condition: {}\nExplanation: {}", stringify!($cond), $ctx);
             ex.set_name($name)
@@ -234,8 +239,7 @@ macro_rules! assert_throw {
     };
     ($cond:expr, $ctx:expr) => {
         if !($cond) {
-            use crate::exception::Exception;
-            let mut ex = Exception::new();
+            let mut ex = $crate::Exception::new();
             let loc = std::panic::Location::caller();
             let ctx = format!("Condition: {}\nExplanation: {}", stringify!($cond), $ctx);
             ex.set_name("AssertionFailedException")
@@ -248,8 +252,7 @@ macro_rules! assert_throw {
     };
     ($cond:expr) => {
         if !($cond) {
-            use crate::exception::Exception;
-            let mut ex = Exception::new();
+            let mut ex = $crate::Exception::new();
             let loc = std::panic::Location::caller();
             let ctx = format!("Condition: {}", stringify!($cond));
             ex.set_name("AssertionFailedException")

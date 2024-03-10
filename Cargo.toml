@@ -1,7 +1,31 @@
 [workspace]
 resolver = "2"
 members = [
+    "deps/bip32",
+    "deps/libexception",
+    "deps/mpc_spec",
     "mpc_algo",
-    "mpc_demo",
-    "mpc_sesman", # sesman = session manager
+    "showcase",
 ]
+
+[workspace.dependencies]
+async-trait = "*"
+bip32 = { path = "deps/bip32" }
+bs58 = "*"
+clap = { version = "4.3", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde-pickle = "1"
+sha2 = "0.9"
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-native-tls"] }
+tokio = { version = "1", features = ["full"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+rand = "0.7"
+rand_core = "0.6"
+
+libexception = { path = "deps/libexception" }
+mpc_algo = { path = "mpc_algo" }
+mpc_spec = { path = "deps/mpc_spec" }
+
+[profile.release]
+opt-level = 3
+strip = true
