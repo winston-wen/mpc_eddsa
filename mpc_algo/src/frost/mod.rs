@@ -5,8 +5,8 @@ pub use signing_key::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SigningCommitmentPair {
-    g_d: EdwardsPoint,
-    g_e: EdwardsPoint,
+    pub g_d: EdwardsPoint,
+    pub g_e: EdwardsPoint,
 }
 
 #[derive(Copy, Clone)]
@@ -30,7 +30,7 @@ pub struct Signature {
 
 impl Zeroize for KeyGenZKP {
     fn zeroize(&mut self) {
-        self.g_k.zeroize();
+        self.g_k_i.zeroize();
         self.sigma.zeroize();
     }
 }

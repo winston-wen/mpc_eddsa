@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use curve25519_dalek::{constants, edwards::EdwardsPoint, scalar::Scalar, traits::Identity};
 use libexception::*;
-use mpc_spec::ShardId;
+use mpc_spec::MpcAddr;
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -11,28 +11,28 @@ use zeroize::Zeroize;
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct PartyKey {
     pub u_i: Scalar,
-    pub k: Scalar,
+    pub k_i: Scalar,
 }
 
 impl PartyKey {
     pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         let u_i = Scalar::random(rng);
         let k = Scalar::random(rng);
-        Self { u_i, k }
+        Self { u_i, k_i: k }
     }
 
     pub fn g_u_i(&self) -> EdwardsPoint {
         &constants::ED25519_BASEPOINT_TABLE * &self.u_i
     }
 
-    pub fn g_k(&self) -> EdwardsPoint {
-        &constants::ED25519_BASEPOINT_TABLE * &self.k
+    pub fn g_k_i(&self) -> EdwardsPoint {
+        &constants::ED25519_BASEPOINT_TABLE * &self.k_i
     }
 
     #[allow(dead_code)]
     pub fn import<R: RngCore + CryptoRng>(u_i: Scalar, rng: &mut R) -> Self {
         let k = Scalar::random(rng);
-        Self { u_i, k }
+        Self { u_i, k_i: k }
     }
 }
 
@@ -44,8 +44,8 @@ pub struct KeyGenDKGProposedCommitment {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KeyGenZKP {
-    pub g_k: EdwardsPoint, // KeyGen: g_k
-    pub sigma: Scalar,     // KeyGen: sigma
+    pub g_k_i: EdwardsPoint, // KeyGen: g_k
+    pub sigma: Scalar,       // KeyGen: sigma
 }
 
 impl Zeroize for KeyGenDKGProposedCommitment {
@@ -57,7 +57,7 @@ impl Zeroize for KeyGenDKGProposedCommitment {
 
 impl KeyGenDKGProposedCommitment {
     pub fn is_valid_zkp(&self, challenge: Scalar) -> Outcome<()> {
-        let valid_zkp = self.zkp.g_k
+        let valid_zkp = self.zkp.g_k_i
             == (&constants::ED25519_BASEPOINT_TABLE * &self.zkp.sigma)
                 - (self.get_commitment_to_secret() * challenge);
         assert_throw!(valid_zkp);
@@ -79,16 +79,20 @@ impl KeyGenDKGProposedCommitment {
 /// to ensure that this step of the protocol is performed before going on to
 /// keygen_finalize
 pub fn keygen_validate_peers(
-    proposed_coms: &HashMap<ShardId, KeyGenDKGProposedCommitment>,
+    proposed_coms: &HashMap<MpcAddr, KeyGenDKGProposedCommitment>,
     context: &str,
-) -> Outcome<HashMap<ShardId, Vec<EdwardsPoint>>> {
+) -> Outcome<HashMap<MpcAddr, Vec<EdwardsPoint>>> {
     let mut invalid_ids = Vec::new();
     let mut valid_coms = HashMap::new();
 
     for (id, com) in proposed_coms.iter() {
-        let challenge =
-            generate_dkg_challenge(*id, context, &com.get_commitment_to_secret(), &com.zkp.g_k)
-                .catch_()?;
+        let challenge = generate_dkg_challenge(
+            *id,
+            context,
+            &com.get_commitment_to_secret(),
+            &com.zkp.g_k_i,
+        )
+        .catch_()?;
 
         if com.is_valid_zkp(challenge).is_ok() {
             let valid_com = com.shares_commitment.clone();
@@ -107,9 +111,9 @@ pub fn keygen_validate_peers(
 }
 
 pub fn merge_vss_share(
-    party_shares: &HashMap<ShardId, Scalar>,
-    share_coms: &HashMap<ShardId, Vec<EdwardsPoint>>,
-    my_id: ShardId,
+    party_shares: &HashMap<MpcAddr, Scalar>,
+    share_coms: &HashMap<MpcAddr, Vec<EdwardsPoint>>,
+    my_id: MpcAddr,
 ) -> Outcome<Scalar /* x_i, aka the signing key */> {
     // first, verify the integrity of the shares
     for (id, share) in party_shares.iter() {
@@ -127,19 +131,22 @@ pub fn merge_vss_share(
 
 pub fn generate_vss_share<R: RngCore + CryptoRng>(
     u_i: &Scalar,
-    my_id: ShardId,
-    members: &HashSet<ShardId>,
-    th: u16, // At least `th` members during sign.
+    my_id: MpcAddr,
+    members: &HashSet<MpcAddr>,
+    th: usize, // At least `th` members during sign.
     rng: &mut R,
-) -> Outcome<(Vec<EdwardsPoint>, HashMap<ShardId, Scalar>)> {
-    assert_throw!(members.contains(&my_id));
+) -> Outcome<(Vec<EdwardsPoint>, HashMap<MpcAddr, Scalar>)> {
+    assert_throw!(
+        members.contains(&my_id),
+        format!("{} not in members", my_id)
+    );
     for i in members.iter() {
         assert_throw!(
             i.group_id() == my_id.group_id(),
             "vss_share: members not in same group"
         );
     }
-    assert_throw!(1 <= th && (th as usize) < members.len());
+    assert_throw!(1 <= th && th < members.len());
 
     // randomly generate a polynomial
     let mut poly: Vec<Scalar> = vec![u_i.clone()];
@@ -155,7 +162,7 @@ pub fn generate_vss_share<R: RngCore + CryptoRng>(
 
     // treat member ID as $x$,
     // and evaluate the polynomial at each $x$.
-    let mut shares: HashMap<ShardId, Scalar> = HashMap::new();
+    let mut shares: HashMap<MpcAddr, Scalar> = HashMap::new();
     for i in members.iter() {
         let x = Scalar::from(i.member_id());
         let y = eval_poly(&poly, &x);
@@ -171,7 +178,7 @@ pub fn generate_vss_share<R: RngCore + CryptoRng>(
 
 /// This may vary from chain to chain, from protocol to protocol.
 pub fn generate_dkg_challenge(
-    index: ShardId,
+    index: MpcAddr,
     context: &str,
     public: &EdwardsPoint,
     commitment: &EdwardsPoint,
@@ -194,7 +201,7 @@ pub fn generate_dkg_challenge(
 
 /// Verify that a share is consistent with a commitment.
 /// i.e. verify that a share is computed from the polynomial represented by `com`.
-pub fn verify_vss_share(id: ShardId, share: &Scalar, com: &[EdwardsPoint]) -> Outcome<()> {
+pub fn verify_vss_share(id: MpcAddr, share: &Scalar, com: &[EdwardsPoint]) -> Outcome<()> {
     let polycom = &constants::ED25519_BASEPOINT_TABLE * share;
 
     let x = Scalar::from(id.member_id());
@@ -204,10 +211,10 @@ pub fn verify_vss_share(id: ShardId, share: &Scalar, com: &[EdwardsPoint]) -> Ou
     Ok(())
 }
 
-/// Evaluate $x_i \ast G$ locally
+/// Evaluate $x_i \ast G$, without knowing $x_i$.
 pub fn eval_xi_com(
-    index: ShardId,
-    vss_com_dict: &HashMap<ShardId, Vec<EdwardsPoint>>,
+    index: MpcAddr,
+    vss_com_dict: &HashMap<MpcAddr, Vec<EdwardsPoint>>,
 ) -> EdwardsPoint {
     let mut gxi = EdwardsPoint::identity();
     let i = Scalar::from(index.member_id());

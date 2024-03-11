@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet}; // keys are in ascending order to avoid deadlock.
 
 use curve25519_dalek::edwards::EdwardsPoint;
 use curve25519_dalek::scalar::Scalar;
@@ -13,131 +13,160 @@ use crate::frost::{
     KeyGenDKGProposedCommitment, KeyGenZKP, PartyKey,
 };
 
-pub type KeyStore = Shard<Scalar, EdwardsPoint>;
+pub type KeyStore = MultiShard<Scalar, EdwardsPoint>;
 
 pub async fn algo_keygen(
     messenger: &impl Messenger,
-    my_id: ShardId,
-    th: u16, // At least `th` members during sign
-    members: &HashSet<ShardId>,
-    context: &str, // Other parties challenge against this ctx
+    key_arch: &HashMap<u16 /*group_id*/, (usize /*th*/, HashSet<MpcAddr>)>,
+    whoami: &[MpcAddr], // My shard_ids
+    context: &str,      // Other parties challenge against this ctx
 ) -> Outcome<KeyStore> {
-    assert_throw!(1 <= th && usize::from(th) <= members.len());
-    assert_throw!(members.contains(&my_id));
-    let mut other_members = members.clone();
-    other_members.remove(&my_id);
+    let mut keystore = KeyStore::default();
 
-    let bcast_id = ShardId::bcast_id();
+    // shard_id should be traversed in ascending order to avoid deadlock.
+    for my_id in whoami.iter() {
+        // extract useful params
+        let my_id = *my_id;
+        let gid = my_id.group_id();
+        let (th, members) = key_arch.get(&gid).ifnone("NoGroup", gid.to_string())?;
+        let gcast_id = MpcAddr::gcast_id(gid);
 
-    // #region generate commitment and zkp for broadcasting
-    let mut rng = OsRng;
-    let party_key = PartyKey::new(&mut rng);
-    if false {
-        use bip32::{Language, Mnemonic};
-        let mnemonic = Mnemonic::from_entropy(party_key.u_i.to_bytes(), Language::English);
-        let phrase = mnemonic.phrase().to_string();
-        drop(phrase);
-    }
-    let _obj: _ = generate_vss_share(&party_key.u_i, my_id, members, th, &mut rng).catch_()?;
-    let shares_com: Vec<EdwardsPoint> = _obj.0;
-    let mut shares: HashMap<ShardId, Scalar> = _obj.1;
+        // print ids
+        print!("Me: {} , Group members: ", my_id);
+        for id in members.iter() {
+            print!("{} ", id);
+        }
+        println!();
 
-    let challenge = generate_dkg_challenge(
-        my_id,
-        context,            // known to all participants
-        &party_key.g_u_i(), // public key of shard
-        &party_key.g_k(),   // commitment of shard
-    )
-    .catch_()?;
-    let sigma = &party_key.k + &party_key.u_i * challenge;
+        // generate party key $u_i$ and ephemeral key $k_i$.
+        let mut rng = OsRng;
+        let party_key = PartyKey::new(&mut rng);
+        if false {
+            use bip32::{Language, Mnemonic};
+            let mnemonic = Mnemonic::from_entropy(party_key.u_i.to_bytes(), Language::English);
+            let phrase = mnemonic.phrase().to_string();
+            drop(phrase);
+        }
 
-    let dkg_commitment = KeyGenDKGProposedCommitment {
-        shares_commitment: shares_com,
-        zkp: KeyGenZKP {
-            g_k: party_key.g_k(),
-            sigma,
-        },
-    };
-    println!("Generated commitments and zkp");
-    // #endregion
+        // generate vss commmitment and vss shares
+        let _obj: _ = generate_vss_share(&party_key.u_i, my_id, members, *th, &mut rng).catch_()?;
+        let shares_com: Vec<EdwardsPoint> = _obj.0;
+        let mut shares: HashMap<MpcAddr, Scalar> = _obj.1;
 
-    // #region round 1: send public commitment to coeffs and a proof of knowledge to u_i
-    messenger
-        .send("dkg_com", my_id, bcast_id, &dkg_commitment)
-        .await
+        // generate challenge
+        let challenge = generate_dkg_challenge(
+            my_id,
+            context,            // known to all participants
+            &party_key.g_u_i(), // public key of shard
+            &party_key.g_k_i(), // commitment of shard
+        )
         .catch_()?;
-    let mut proposed_com_dict: HashMap<ShardId, KeyGenDKGProposedCommitment> = messenger
-        .gather("dkg_com", members, bcast_id)
-        .await
-        .catch_()?;
-    println!("Exchanged commitments");
-    // #endregion
 
-    // #region verify commitment and zkp from round 1 and construct aes keys
-    let vss_com_dict: HashMap<ShardId, Vec<EdwardsPoint>> =
-        keygen_validate_peers(&proposed_com_dict, &context).catch_()?;
-    for com in proposed_com_dict.values_mut() {
-        com.zeroize();
-    }
+        // construct dkg commitment
+        let dkg_commitment = KeyGenDKGProposedCommitment {
+            shares_commitment: shares_com,
+            zkp: KeyGenZKP {
+                g_k_i: party_key.g_k_i(),
+                sigma: &party_key.k_i + &party_key.u_i * challenge,
+            },
+        };
 
-    let mut aes_key_dict: HashMap<ShardId, [u8; 32]> = HashMap::new();
-    for id in other_members.iter() {
-        let com = vss_com_dict.get(id).ifnone_()?;
-        let aes_key = com[0] * &party_key.u_i;
-        let aes_key = aes_key.compress().to_bytes();
-        aes_key_dict.insert(*id, aes_key);
-    }
-    // #endregion
-
-    // #region round 2: send secret shares via aes-p2p
-    for id in other_members.iter() {
-        let aes_key = aes_key_dict.get(id).ifnone_()?;
-        let plaintext = shares.get(id).ifnone_()?.to_bytes();
-        let aead_pack_i = aes_encrypt(aes_key, &plaintext).catch_()?;
         messenger
-            .send("aead_share", my_id, *id, &aead_pack_i)
+            .send("dkg_com", my_id, gcast_id, &dkg_commitment)
             .await
             .catch_()?;
-    }
-    let aead_dict: HashMap<ShardId, AEAD> = messenger
-        .gather("aead_share", &other_members, my_id)
-        .await
-        .catch_()?;
-    println!("Finished keygen round aead_share");
-    // #endregion
+        let proposed_com_dict: HashMap<MpcAddr, KeyGenDKGProposedCommitment> = messenger
+            .gather("dkg_com", members, gcast_id)
+            .await
+            .catch_()?;
 
-    // #region retrieve private signing key share
-    let mut party_shares: HashMap<ShardId, Scalar> = HashMap::new();
-    party_shares.insert(my_id, shares.get(&my_id).ifnone_()?.clone());
-    for x in shares.values_mut() {
-        x.zeroize();
-    }
-    for id in other_members.iter() {
-        let aes_key = aes_key_dict.get(id).ifnone_()?;
-        let aead_pack = aead_dict.get(id).ifnone_()?;
-        let out = aes_decrypt(aes_key, &aead_pack).catch_()?;
-        assert_throw!(out.len() == 32);
-        let mut out_arr = [0u8; 32];
-        out_arr.copy_from_slice(&out);
-        let out_fe = Scalar::from_bytes_mod_order(out_arr);
-        party_shares.insert(*id, out_fe);
+        // verify and collect others' vss_com_dict
+        let vss_com_dict: HashMap<MpcAddr, Vec<EdwardsPoint>> =
+            keygen_validate_peers(&proposed_com_dict, &context).catch_()?;
+        drop(proposed_com_dict);
+        for (_, vss_com) in vss_com_dict.iter() {
+            assert_throw!(vss_com.len() == *th); // to avoid DKG attack via increasing threshold on the fly.
+        }
+
+        // use others' pubkey to construct aes key
+        let mut aes_key_dict: HashMap<MpcAddr, [u8; 32]> = HashMap::new();
+        for j in members.iter() {
+            let com = vss_com_dict.get(j).ifnone_()?;
+            let aes_key = com[0] * &party_key.u_i; // aes_key = u_j * g_u_i
+            let aes_key = aes_key.compress().to_bytes();
+            aes_key_dict.insert(*j, aes_key);
+        }
+
+        // scatter vss shares via aes-gcm encrypted channel
+        for id in members.iter() {
+            let aes_key = aes_key_dict.get(id).ifnone_()?;
+            let plaintext = shares.get(id).ifnone_()?.to_bytes();
+            let aead_pack_i = aes_encrypt(aes_key, &plaintext).catch_()?;
+            messenger
+                .send("aead_share", my_id, *id, &aead_pack_i)
+                .await
+                .catch_()?;
+        }
+        let aead_dict: HashMap<MpcAddr, AEAD> = messenger
+            .gather("aead_share", members, my_id)
+            .await
+            .catch_()?;
+
+        for x in shares.values_mut() {
+            x.zeroize();
+        }
+        drop(shares);
+
+        // gather vss shares
+        let mut party_shares: HashMap<MpcAddr, Scalar> = HashMap::new();
+        for j in members.iter() {
+            let aes_key = aes_key_dict.get(j).ifnone_()?;
+            let aead_pack = aead_dict.get(j).ifnone_()?;
+            let out = aes_decrypt(aes_key, &aead_pack).catch_()?;
+            assert_throw!(out.len() == 32);
+            let mut out_arr = [0u8; 32];
+            out_arr.copy_from_slice(&out);
+            let out_fe = Scalar::from_bytes_mod_order(out_arr);
+            party_shares.insert(*j, out_fe);
+        }
+
+        // compute x_i
+        let signing_key: Scalar = merge_vss_share(&party_shares, &vss_com_dict, my_id).catch_()?;
+        for x in party_shares.values_mut() {
+            x.zeroize();
+        }
+
+        keystore.ui_pergroup.insert(gid, party_key.u_i);
+        keystore.xi_pergroup.insert(gid, signing_key);
+        keystore.vss_com_grid.insert(gid, vss_com_dict);
     }
 
-    let signing_key: Scalar = merge_vss_share(&party_shares, &vss_com_dict, my_id).catch_()?;
-    for x in party_shares.values_mut() {
-        x.zeroize();
+    // Fetch vss_com of members in other groups
+    let mut key_arch = key_arch.clone();
+    for my_id in whoami.iter() {
+        let gid = my_id.group_id();
+        key_arch.remove(&gid);
     }
-    // #endregion
+    for (gid, (th, members)) in key_arch.iter() {
+        let gcast_id = MpcAddr::gcast_id(*gid);
+        let proposed_com_dict: HashMap<MpcAddr, KeyGenDKGProposedCommitment> = messenger
+            .gather("dkg_com", members, gcast_id)
+            .await
+            .catch_()?;
 
-    let keystore = KeyStore {
-        u_i: party_key.u_i,
-        x_i: signing_key,
-        vss_com_dict,
-        id: my_id,
-        th,
-        aux: None,
-    };
-    println!("Finished keygen");
+        // verify and collect others' vss_com_dict
+        let vss_com_dict: HashMap<MpcAddr, Vec<EdwardsPoint>> =
+            keygen_validate_peers(&proposed_com_dict, &context).catch_()?;
+        drop(proposed_com_dict);
+        for (_, vss_com) in vss_com_dict.iter() {
+            assert_throw!(vss_com.len() == *th); // to avoid DKG attack via increasing threshold on the fly.
+        }
+
+        keystore.vss_com_grid.insert(*gid, vss_com_dict);
+    }
+
+    // Archive my shard_ids
+    keystore.ids = whoami.iter().cloned().collect();
 
     Ok(keystore)
 }

@@ -8,3 +8,4 @@ edition = "2021"
 async-trait = "*"
 serde = { version = "1", features = ["derive"] }
 zeroize = { version = "*", features = ["derive"] }
+libexception = { workspace = true }

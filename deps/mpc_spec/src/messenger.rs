@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 
-use super::ShardId;
+use super::MpcAddr;
 
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
@@ -13,22 +13,22 @@ pub trait Messenger {
     async fn send<T>(
         &self,
         topic: &str,
-        src: ShardId,
-        dst: ShardId,
+        src: MpcAddr,
+        dst: MpcAddr,
         obj: &T,
     ) -> Result<(), Self::E>
     where
         T: Serialize + DeserializeOwned + Send + Sync;
 
-    async fn receive<T>(&self, topic: &str, src: ShardId, dst: ShardId) -> Result<T, Self::E>
+    async fn receive<T>(&self, topic: &str, src: MpcAddr, dst: MpcAddr) -> Result<T, Self::E>
     where
         T: Serialize + DeserializeOwned + Send + Sync;
 
     async fn scatter<T>(
         &self,
         topic: &str,
-        src: ShardId,
-        dsts: &HashSet<ShardId>,
+        src: MpcAddr,
+        dsts: &HashSet<MpcAddr>,
         obj: &T,
     ) -> Result<(), Self::E>
     where
@@ -37,9 +37,9 @@ pub trait Messenger {
     async fn gather<T>(
         &self,
         topic: &str,
-        srcs: &HashSet<ShardId>,
-        dst: ShardId,
-    ) -> Result<HashMap<ShardId, T>, Self::E>
+        srcs: &HashSet<MpcAddr>,
+        dst: MpcAddr,
+    ) -> Result<HashMap<MpcAddr, T>, Self::E>
     where
         T: Serialize + DeserializeOwned + Send + Sync;
 }

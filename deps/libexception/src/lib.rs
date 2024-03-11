@@ -70,8 +70,8 @@ impl Exception {
     }
 
     #[inline]
-    pub fn set_context(&mut self, ctx: &str) -> &mut Self {
-        self.context = Some(ctx.to_string());
+    pub fn set_context(&mut self, ctx: impl AsRef<str>) -> &mut Self {
+        self.context = Some(ctx.as_ref().to_string());
         self
     }
 
@@ -140,7 +140,7 @@ pub trait TraitStdResultToOutcome<T, E> {
     /// Add detailed information to an error.
     /// `name` and `context` is provided by the caller.
     /// source path, line and column is automatically injected by the compiler.
-    fn catch(self, name: &str, ctx: &str) -> Outcome<T>;
+    fn catch(self, name: &str, ctx: impl AsRef<str>) -> Outcome<T>;
 
     /// equivalent to `catch("", "")`.
     /// Note that the exception's name will be shown as "DummyException".
@@ -152,7 +152,7 @@ where
     E: fmt::Display + Send + Sync + 'static,
 {
     #[track_caller]
-    fn catch(self, name: &str, ctx: &str) -> Outcome<T> {
+    fn catch(self, name: &str, ctx: impl AsRef<str>) -> Outcome<T> {
         match self {
             Ok(v) => {
                 return Ok(v);
@@ -266,13 +266,13 @@ macro_rules! assert_throw {
 }
 
 pub trait TraitStdOptionToOutcome<T> {
-    fn ifnone(self, name: &str, ctx: &str) -> Outcome<T>;
+    fn ifnone(self, name: &str, ctx: impl AsRef<str>) -> Outcome<T>;
     fn ifnone_(self) -> Outcome<T>;
 }
 
 impl<T> TraitStdOptionToOutcome<T> for std::option::Option<T> {
     #[track_caller]
-    fn ifnone(self, name: &str, ctx: &str) -> Outcome<T> {
+    fn ifnone(self, name: &str, ctx: impl AsRef<str>) -> Outcome<T> {
         match self {
             Some(t) => Ok(t),
             None => throw!(name, ctx),

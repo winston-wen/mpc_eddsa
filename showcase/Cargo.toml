@@ -4,24 +4,24 @@ edition = "2021"
 name = "mpc_eddsa_showcase"
 
 [[bin]]
-name = "keygen"
-path = "src/keygen.rs"
+name = "demo_keygen"
+path = "src/demo_keygen.rs"
 
 [[bin]]
-name = "sign"
-path = "src/sign.rs"
+name = "demo_sign"
+path = "src/demo_sign.rs"
 
 [[bin]]
-name = "sesman_server"
-path = "src/sesman_server.rs"
+name = "demo_sesman_server"
+path = "src/demo_sesman_server.rs"
 
 [dependencies]
-
+dashmap = "5"
 miniz_oxide = "0.7"
 prost = "0.12"
 prost-types = "0.12"
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-native-tls"] }
-tonic = { version = "0.10", features = ["gzip", "channel"] }
+tonic = { version = "0.11" }
 
 bs58 = { workspace = true }
 clap = { workspace = true }
