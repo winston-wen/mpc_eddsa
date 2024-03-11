@@ -27,6 +27,8 @@ pub async fn algo_keygen(
     let mut other_members = members.clone();
     other_members.remove(&my_id);
 
+    let bcast_id = ShardId::bcast_id();
+
     // #region generate commitment and zkp for broadcasting
     let mut rng = OsRng;
     let party_key = PartyKey::new(&mut rng);
@@ -61,11 +63,13 @@ pub async fn algo_keygen(
 
     // #region round 1: send public commitment to coeffs and a proof of knowledge to u_i
     messenger
-        .scatter("dkg_com", my_id, members, &dkg_commitment)
+        .send("dkg_com", my_id, bcast_id, &dkg_commitment)
         .await
         .catch_()?;
-    let mut proposed_com_dict: HashMap<ShardId, KeyGenDKGProposedCommitment> =
-        messenger.gather("dkg_com", members, my_id).await.catch_()?;
+    let mut proposed_com_dict: HashMap<ShardId, KeyGenDKGProposedCommitment> = messenger
+        .gather("dkg_com", members, bcast_id)
+        .await
+        .catch_()?;
     println!("Exchanged commitments");
     // #endregion
 

@@ -17,6 +17,7 @@ pub struct ShowcaseSesmanServer {
 }
 
 impl ShowcaseSesmanServer {
+    #[allow(dead_code)] // used by ../sesman_server.rs but rustc doesn't know
     pub async fn new() -> Outcome<Self> {
         use tokio::fs::try_exists;
         use tokio::fs::{remove_file, File};
@@ -42,6 +43,7 @@ impl ShowcaseSesmanServer {
         Ok(Self { sqlite_pool })
     }
 
+    #[allow(dead_code)] // used by ../sesman_server.rs but rustc doesn't know
     pub async fn run(self) -> Outcome<()> {
         let listen_at = GRPC_URL[7..].parse().unwrap(); // remove "http://" prefix
         println!("SesmanServer will listen at {}", listen_at);

@@ -29,6 +29,7 @@ impl PartyKey {
         &constants::ED25519_BASEPOINT_TABLE * &self.k
     }
 
+    #[allow(dead_code)]
     pub fn import<R: RngCore + CryptoRng>(u_i: Scalar, rng: &mut R) -> Self {
         let k = Scalar::random(rng);
         Self { u_i, k }
@@ -108,12 +109,12 @@ pub fn keygen_validate_peers(
 pub fn merge_vss_share(
     party_shares: &HashMap<ShardId, Scalar>,
     share_coms: &HashMap<ShardId, Vec<EdwardsPoint>>,
-    id: ShardId,
+    my_id: ShardId,
 ) -> Outcome<Scalar /* x_i, aka the signing key */> {
     // first, verify the integrity of the shares
     for (id, share) in party_shares.iter() {
         let com = share_coms.get(id).ifnone_()?;
-        verify_vss_share(*id, share, com).catch_()?;
+        verify_vss_share(my_id, share, com).catch_()?;
     }
 
     let mut x_i = Scalar::zero();
@@ -198,7 +199,7 @@ pub fn verify_vss_share(id: ShardId, share: &Scalar, com: &[EdwardsPoint]) -> Ou
 
     let x = Scalar::from(id.member_id());
     let expanded_polycom = eval_polycom(com, &x);
-    assert_throw!(expanded_polycom == expanded_polycom, "Invalid share");
+    assert_throw!(polycom == expanded_polycom, "Invalid share");
 
     Ok(())
 }

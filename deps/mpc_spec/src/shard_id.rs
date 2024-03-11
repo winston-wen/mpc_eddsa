@@ -36,11 +36,11 @@ impl ShardId {
         self.0.to_be_bytes()
     }
 
-    pub fn id_bcast() -> Self {
+    pub fn bcast_id() -> Self {
         ShardId(0) // group 0, member 0
     }
 
-    pub fn id_gcast(group_id: u16) -> Self {
+    pub fn gcast_id(group_id: u16) -> Self {
         Self::new(group_id, 0)
     }
 

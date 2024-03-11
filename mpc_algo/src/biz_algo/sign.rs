@@ -26,6 +26,7 @@ pub async fn algo_sign(
 
     let my_id = shard.id;
     let pivot_id = signers.iter().min().ifnone_()?;
+    let bcast_id = ShardId::bcast_id();
     let main_pk = shard.pk();
     let chain_code = eval_chain_code(&main_pk);
     let mut rng = OsRng;
@@ -48,11 +49,11 @@ pub async fn algo_sign(
     let com_pair: Vec<SigningCommitmentPair> = _obj.0;
     let mut nonce_pair: Vec<SigningNoncePair> = _obj.1;
     messenger
-        .scatter("com_pair", my_id, signers, &com_pair[0])
+        .send("com_pair", my_id, bcast_id, &com_pair[0])
         .await
         .catch_()?;
     let com_pair_dict: HashMap<ShardId, SigningCommitmentPair> = messenger
-        .gather("com_pair", signers, my_id)
+        .gather("com_pair", signers, bcast_id)
         .await
         .catch_()?;
     // #endregion
@@ -68,11 +69,11 @@ pub async fn algo_sign(
     )
     .catch_()?;
     messenger
-        .scatter("response", my_id, signers, &response_i)
+        .send("response", my_id, bcast_id, &response_i)
         .await
         .catch_()?;
     let resp_dict: HashMap<ShardId, Scalar> = messenger
-        .gather("response", signers, my_id)
+        .gather("response", signers, bcast_id)
         .await
         .catch_()?;
     println!("Finished sign_and_respond");
